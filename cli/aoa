@@ -1,0 +1,859 @@
+#!/usr/bin/env bash
+# aoa - Bold tools for Claude Code
+# FIND ME
+# Usage:
+#   aoa status              Show status line
+#   aoa status --watch      Live updating status
+#   aoa status --json       Full metrics as JSON
+#
+#   aoa search <term>       Search LOCAL codebase
+#   aoa multi <t1,t2,...>   Multi-term search (local)
+#   aoa changes [time]      Recent changes (5m, 1h, etc.)
+#   aoa files [pattern]     List local files
+#
+#   aoa repo list           List knowledge repos
+#   aoa repo add <n> <url>  Add a knowledge repo
+#   aoa repo remove <name>  Remove a knowledge repo
+#   aoa repo <name> search  Search in a specific repo
+#   aoa repo <name> files   List files in a specific repo
+#
+#   aoa health              Check services
+
+set -e
+
+# Configuration
+INDEX_HOST="${AOA_INDEX_HOST:-localhost}"
+INDEX_PORT="${AOA_INDEX_PORT:-9999}"
+STATUS_HOST="${AOA_STATUS_HOST:-localhost}"
+STATUS_PORT="${AOA_STATUS_PORT:-9998}"
+
+INDEX_URL="http://${INDEX_HOST}:${INDEX_PORT}"
+STATUS_URL="http://${STATUS_HOST}:${STATUS_PORT}"
+
+# Colors
+BOLD='\033[1m'
+DIM='\033[2m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+RED='\033[0;31m'
+NC='\033[0m'
+
+# =============================================================================
+# Status Commands
+# =============================================================================
+
+cmd_status() {
+    local watch=false
+    local json=false
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -w|--watch) watch=true; shift ;;
+            -j|--json) json=true; shift ;;
+            *) shift ;;
+        esac
+    done
+
+    if $json; then
+        curl -s "${STATUS_URL}/status/json" | jq .
+        return
+    fi
+
+    if $watch; then
+        echo -e "${DIM}Press Ctrl+C to exit${NC}"
+        echo ""
+        while true; do
+            # Move cursor up and clear line
+            tput cuu1 2>/dev/null || true
+            tput el 2>/dev/null || true
+
+            # Get and display status
+            local line=$(curl -s "${STATUS_URL}/status" 2>/dev/null || echo "Status service unavailable")
+            echo -e "${CYAN}${line}${NC}"
+
+            sleep 1
+        done
+    else
+        local line=$(curl -s "${STATUS_URL}/status" 2>/dev/null)
+        if [ -n "$line" ]; then
+            echo -e "${CYAN}┌─────────────────────────────────────────────────────────────────────────────┐${NC}"
+            echo -e "${CYAN}│${NC} ${line} ${CYAN}│${NC}"
+            echo -e "${CYAN}└─────────────────────────────────────────────────────────────────────────────┘${NC}"
+        else
+            echo -e "${RED}Status service not available at ${STATUS_URL}${NC}"
+            return 1
+        fi
+    fi
+}
+
+# =============================================================================
+# Local Index Commands (default)
+# =============================================================================
+
+cmd_search() {
+    local query="$1"
+    local mode="${2:-recent}"
+    local limit="${3:-20}"
+
+    if [ -z "$query" ]; then
+        echo "Usage: aoa search <term> [mode] [limit]"
+        return 1
+    fi
+
+    local result=$(curl -s "${INDEX_URL}/symbol?q=${query}&mode=${mode}&limit=${limit}")
+    local ms=$(echo "$result" | jq -r '.ms // 0')
+    local count=$(echo "$result" | jq -r '.results | length')
+
+    # Single punchy line: ⚡ 7 hits │ 0.12ms
+    printf "${CYAN}${BOLD}⚡ %s hits${NC} ${DIM}│${NC} ${GREEN}%.2fms${NC}\n" "$count" "$ms"
+
+    # Results
+    echo "$result" | jq -r '.results[] | "  \(.file):\(.line)"' 2>/dev/null
+}
+
+cmd_multi() {
+    local terms="$1"
+    local mode="${2:-recent}"
+    local limit="${3:-20}"
+
+    if [ -z "$terms" ]; then
+        echo "Usage: aoa multi <term1,term2,...> [mode] [limit]"
+        return 1
+    fi
+
+    # Convert to JSON array
+    local json_terms=$(echo "$terms" | tr ',' '\n' | jq -R . | jq -s .)
+
+    local result=$(curl -s -X POST "${INDEX_URL}/multi" \
+        -H "Content-Type: application/json" \
+        -d "{\"terms\": ${json_terms}, \"mode\": \"${mode}\", \"limit\": ${limit}}")
+
+    local ms=$(echo "$result" | jq -r '.ms // 0')
+    local count=$(echo "$result" | jq -r '.results | length')
+
+    # Single punchy line
+    printf "${CYAN}${BOLD}⚡ %s hits${NC} ${DIM}│${NC} ${GREEN}%.2fms${NC}\n" "$count" "$ms"
+
+    echo "$result" | jq -r '.results[] | "  \(.file):\(.line)"' 2>/dev/null
+}
+
+cmd_changes() {
+    local since="${1:-300}"
+
+    # Parse time strings
+    if [[ "$since" =~ ^([0-9]+)([smh])$ ]]; then
+        local num="${BASH_REMATCH[1]}"
+        local unit="${BASH_REMATCH[2]}"
+        case "$unit" in
+            s) since=$num ;;
+            m) since=$((num * 60)) ;;
+            h) since=$((num * 3600)) ;;
+        esac
+    fi
+
+    local result=$(curl -s "${INDEX_URL}/changes?since=${since}")
+
+    echo -e "${GREEN}Added:${NC}"
+    echo "$result" | jq -r '.added[]' 2>/dev/null || echo "  (none)"
+
+    echo -e "${YELLOW}Modified:${NC}"
+    echo "$result" | jq -r '.modified[].file' 2>/dev/null || echo "  (none)"
+
+    echo -e "${RED}Deleted:${NC}"
+    echo "$result" | jq -r '.deleted[]' 2>/dev/null || echo "  (none)"
+}
+
+cmd_files() {
+    local pattern="$1"
+    local mode="${2:-recent}"
+    local limit="${3:-30}"
+
+    local url="${INDEX_URL}/files?mode=${mode}&limit=${limit}"
+    [ -n "$pattern" ] && url="${url}&match=${pattern}"
+
+    curl -s "$url" | jq -r '.results[] | "\(.path) (\(.language))"'
+}
+
+# =============================================================================
+# Knowledge Repo Commands
+# =============================================================================
+
+cmd_repo() {
+    local subcmd="${1:-list}"
+    shift || true
+
+    case "$subcmd" in
+        list|ls)
+            cmd_repo_list "$@"
+            ;;
+        add)
+            cmd_repo_add "$@"
+            ;;
+        remove|rm)
+            cmd_repo_remove "$@"
+            ;;
+        *)
+            # Assume it's a repo name - dispatch to repo-specific commands
+            local repo_name="$subcmd"
+            local repo_cmd="${1:-help}"
+            shift || true
+
+            case "$repo_cmd" in
+                search|s)
+                    cmd_repo_search "$repo_name" "$@"
+                    ;;
+                multi|m)
+                    cmd_repo_multi "$repo_name" "$@"
+                    ;;
+                files|f)
+                    cmd_repo_files "$repo_name" "$@"
+                    ;;
+                file)
+                    cmd_repo_file "$repo_name" "$@"
+                    ;;
+                deps)
+                    cmd_repo_deps "$repo_name" "$@"
+                    ;;
+                *)
+                    echo -e "${BOLD}Repo: ${repo_name}${NC}"
+                    echo ""
+                    echo "Commands:"
+                    echo "  aoa repo ${repo_name} search <term>   Search in ${repo_name}"
+                    echo "  aoa repo ${repo_name} multi <t1,t2>  Multi-term search"
+                    echo "  aoa repo ${repo_name} files [pat]    List files"
+                    echo "  aoa repo ${repo_name} file <path>    Get file content"
+                    echo "  aoa repo ${repo_name} deps <file>    Get dependencies"
+                    ;;
+            esac
+            ;;
+    esac
+}
+
+cmd_repo_list() {
+    echo -e "${BOLD}Knowledge Repos${NC}"
+    echo ""
+
+    local result=$(curl -s "${INDEX_URL}/repos")
+    local count=$(echo "$result" | jq '.repos | length')
+
+    if [ "$count" == "0" ]; then
+        echo -e "${DIM}No knowledge repos. Add one with:${NC}"
+        echo "  aoa repo add <name> <git-url>"
+        return
+    fi
+
+    echo "$result" | jq -r '.repos[] | "  \(.name): \(.files) files, \(.symbols) symbols"'
+}
+
+cmd_repo_add() {
+    local name="$1"
+    local url="$2"
+
+    if [ -z "$name" ] || [ -z "$url" ]; then
+        echo "Usage: aoa repo add <name> <git-url>"
+        echo ""
+        echo "Examples:"
+        echo "  aoa repo add flask https://github.com/pallets/flask"
+        echo "  aoa repo add react https://github.com/facebook/react"
+        return 1
+    fi
+
+    echo -e "${DIM}Cloning and indexing ${name}...${NC}"
+
+    local result=$(curl -s -X POST "${INDEX_URL}/repos" \
+        -H "Content-Type: application/json" \
+        -d "{\"name\": \"${name}\", \"url\": \"${url}\"}")
+
+    local success=$(echo "$result" | jq -r '.success // false')
+
+    if [ "$success" == "true" ]; then
+        local msg=$(echo "$result" | jq -r '.message')
+        echo -e "${GREEN}${msg}${NC}"
+    else
+        local err=$(echo "$result" | jq -r '.error // "Unknown error"')
+        echo -e "${RED}Failed: ${err}${NC}"
+        return 1
+    fi
+}
+
+cmd_repo_remove() {
+    local name="$1"
+
+    if [ -z "$name" ]; then
+        echo "Usage: aoa repo remove <name>"
+        return 1
+    fi
+
+    echo -e "${DIM}Removing ${name}...${NC}"
+
+    local result=$(curl -s -X DELETE "${INDEX_URL}/repos/${name}")
+
+    local success=$(echo "$result" | jq -r '.success // false')
+
+    if [ "$success" == "true" ]; then
+        echo -e "${GREEN}Repo '${name}' removed${NC}"
+    else
+        local err=$(echo "$result" | jq -r '.error // "Unknown error"')
+        echo -e "${RED}Failed: ${err}${NC}"
+        return 1
+    fi
+}
+
+cmd_repo_search() {
+    local repo_name="$1"
+    local query="$2"
+    local mode="${3:-recent}"
+    local limit="${4:-20}"
+
+    if [ -z "$query" ]; then
+        echo "Usage: aoa repo ${repo_name} search <term> [mode] [limit]"
+        return 1
+    fi
+
+    local result=$(curl -s "${INDEX_URL}/repo/${repo_name}/symbol?q=${query}&mode=${mode}&limit=${limit}")
+
+    # Check for error
+    local err=$(echo "$result" | jq -r '.error // empty')
+    if [ -n "$err" ]; then
+        echo -e "${RED}${err}${NC}"
+        return 1
+    fi
+
+    local ms=$(echo "$result" | jq -r '.ms // 0')
+    local count=$(echo "$result" | jq -r '.results | length')
+
+    # Single punchy line with repo indicator
+    printf "${CYAN}${BOLD}⚡ %s hits${NC} ${DIM}│${NC} ${GREEN}%.2fms${NC} ${DIM}│${NC} ${YELLOW}%s${NC}\n" "$count" "$ms" "$repo_name"
+
+    echo "$result" | jq -r '.results[] | "  \(.file):\(.line)"' 2>/dev/null
+}
+
+cmd_repo_multi() {
+    local repo_name="$1"
+    local terms="$2"
+    local mode="${3:-recent}"
+    local limit="${4:-20}"
+
+    if [ -z "$terms" ]; then
+        echo "Usage: aoa repo ${repo_name} multi <term1,term2,...> [mode] [limit]"
+        return 1
+    fi
+
+    local json_terms=$(echo "$terms" | tr ',' '\n' | jq -R . | jq -s .)
+
+    local result=$(curl -s -X POST "${INDEX_URL}/repo/${repo_name}/multi" \
+        -H "Content-Type: application/json" \
+        -d "{\"terms\": ${json_terms}, \"mode\": \"${mode}\", \"limit\": ${limit}}")
+
+    local err=$(echo "$result" | jq -r '.error // empty')
+    if [ -n "$err" ]; then
+        echo -e "${RED}${err}${NC}"
+        return 1
+    fi
+
+    local ms=$(echo "$result" | jq -r '.ms // 0')
+
+    echo -e "${DIM}Found in ${ms}ms (${repo_name}):${NC}"
+    echo "$result" | jq -r '.results[] | "\(.file):\(.line)"' 2>/dev/null || echo "No results"
+}
+
+cmd_repo_files() {
+    local repo_name="$1"
+    local pattern="$2"
+    local mode="${3:-recent}"
+    local limit="${4:-30}"
+
+    local url="${INDEX_URL}/repo/${repo_name}/files?mode=${mode}&limit=${limit}"
+    [ -n "$pattern" ] && url="${url}&match=${pattern}"
+
+    local result=$(curl -s "$url")
+
+    local err=$(echo "$result" | jq -r '.error // empty')
+    if [ -n "$err" ]; then
+        echo -e "${RED}${err}${NC}"
+        return 1
+    fi
+
+    echo "$result" | jq -r '.results[] | "\(.path) (\(.language))"'
+}
+
+cmd_repo_file() {
+    local repo_name="$1"
+    local path="$2"
+    local lines="$3"
+
+    if [ -z "$path" ]; then
+        echo "Usage: aoa repo ${repo_name} file <path> [lines]"
+        echo "  lines: e.g., 10-50"
+        return 1
+    fi
+
+    local url="${INDEX_URL}/repo/${repo_name}/file?path=${path}"
+    [ -n "$lines" ] && url="${url}&lines=${lines}"
+
+    local result=$(curl -s "$url")
+
+    local err=$(echo "$result" | jq -r '.error // empty')
+    if [ -n "$err" ]; then
+        echo -e "${RED}${err}${NC}"
+        return 1
+    fi
+
+    echo "$result" | jq -r '.content'
+}
+
+cmd_repo_deps() {
+    local repo_name="$1"
+    local file="$2"
+    local direction="${3:-outgoing}"
+
+    if [ -z "$file" ]; then
+        echo "Usage: aoa repo ${repo_name} deps <file> [outgoing|incoming]"
+        return 1
+    fi
+
+    local result=$(curl -s "${INDEX_URL}/repo/${repo_name}/deps?file=${file}&direction=${direction}")
+
+    local err=$(echo "$result" | jq -r '.error // empty')
+    if [ -n "$err" ]; then
+        echo -e "${RED}${err}${NC}"
+        return 1
+    fi
+
+    echo -e "${BOLD}${direction} dependencies for ${file}:${NC}"
+    echo "$result" | jq -r '.dependencies[]' 2>/dev/null || echo "  (none)"
+}
+
+# =============================================================================
+# Pattern Search (Agent-driven)
+# =============================================================================
+
+cmd_pattern() {
+    # Usage: aoa pattern '{"func_def": "def\\s+\\w+"}' [--repo name] [--since 7d]
+    local patterns="$1"
+    shift || true
+
+    local repo=""
+    local since=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --repo|-r) repo="$2"; shift 2 ;;
+            --since|-s) since="$2"; shift 2 ;;
+            *) shift ;;
+        esac
+    done
+
+    if [ -z "$patterns" ]; then
+        echo "Usage: aoa pattern '<json patterns>' [--repo name] [--since time]"
+        echo ""
+        echo "Examples:"
+        echo '  aoa pattern '\''{"func": "def\\s+\\w+\\("}'\'''
+        echo '  aoa pattern '\''{"class": "class\\s+\\w+"}'\'' --repo flask'
+        echo '  aoa pattern '\''{"error": "except\\s+\\w+"}'\'' --since 7d'
+        return 1
+    fi
+
+    # Parse since time string
+    local since_seconds=""
+    if [ -n "$since" ]; then
+        if [[ "$since" =~ ^([0-9]+)([smhd])$ ]]; then
+            local num="${BASH_REMATCH[1]}"
+            local unit="${BASH_REMATCH[2]}"
+            case "$unit" in
+                s) since_seconds=$num ;;
+                m) since_seconds=$((num * 60)) ;;
+                h) since_seconds=$((num * 3600)) ;;
+                d) since_seconds=$((num * 86400)) ;;
+            esac
+        else
+            since_seconds="$since"
+        fi
+    fi
+
+    # Build request body
+    local body="{\"patterns\": ${patterns}"
+    [ -n "$repo" ] && body="${body}, \"repo\": \"${repo}\""
+    [ -n "$since_seconds" ] && body="${body}, \"since\": ${since_seconds}"
+    body="${body}}"
+
+    local url="${INDEX_URL}/pattern"
+    [ -n "$repo" ] && url="${INDEX_URL}/repo/${repo}/pattern"
+
+    local result=$(curl -s -X POST "$url" \
+        -H "Content-Type: application/json" \
+        -d "$body")
+
+    local err=$(echo "$result" | jq -r '.error // empty')
+    if [ -n "$err" ]; then
+        echo -e "${RED}${err}${NC}"
+        return 1
+    fi
+
+    local ms=$(echo "$result" | jq -r '.stats.ms')
+    local files=$(echo "$result" | jq -r '.stats.files_searched')
+    local matched=$(echo "$result" | jq -r '.stats.files_matched')
+    local idx=$(echo "$result" | jq -r '.index')
+
+    echo -e "${DIM}Pattern search in ${idx}: ${files} files, ${matched} matched, ${ms}ms${NC}"
+    echo ""
+
+    # Output results grouped by pattern
+    echo "$result" | jq -r '.results | to_entries[] | "\u001b[1m\(.key):\u001b[0m", (.value[] | "  \(.file):\(.line) \u001b[2m\(.context)\u001b[0m"), ""'
+}
+
+# =============================================================================
+# Intent Commands
+# =============================================================================
+
+cmd_intent() {
+    local subcmd="${1:-recent}"
+    shift || true
+
+    case "$subcmd" in
+        recent|r)
+            cmd_intent_recent "$@"
+            ;;
+        tags|t)
+            cmd_intent_tags "$@"
+            ;;
+        files|f)
+            cmd_intent_files "$@"
+            ;;
+        file)
+            cmd_intent_file "$@"
+            ;;
+        stats)
+            cmd_intent_stats "$@"
+            ;;
+        *)
+            echo -e "${BOLD}Intent Tracking${NC}"
+            echo ""
+            echo "Commands:"
+            echo "  aoa intent recent [since]   Recent intent records (e.g., 1h, 30m)"
+            echo "  aoa intent tags             All tags with file counts"
+            echo "  aoa intent files <tag>      Files associated with a tag"
+            echo "  aoa intent file <path>      Tags associated with a file"
+            echo "  aoa intent stats            Intent index statistics"
+            ;;
+    esac
+}
+
+cmd_intent_recent() {
+    local since="${1:-3600}"
+
+    # Parse time strings
+    if [[ "$since" =~ ^([0-9]+)([smh])$ ]]; then
+        local num="${BASH_REMATCH[1]}"
+        local unit="${BASH_REMATCH[2]}"
+        case "$unit" in
+            s) since=$num ;;
+            m) since=$((num * 60)) ;;
+            h) since=$((num * 3600)) ;;
+        esac
+    fi
+
+    local result=$(curl -s "${INDEX_URL}/intent/recent?since=${since}&limit=30")
+
+    local stats=$(echo "$result" | jq -r '.stats')
+    local total=$(echo "$stats" | jq -r '.total_records')
+    local tags=$(echo "$stats" | jq -r '.unique_tags')
+    local files=$(echo "$stats" | jq -r '.unique_files')
+
+    echo -e "${BOLD}Intent Activity${NC} ${DIM}│${NC} ${total} records, ${tags} tags, ${files} files"
+    echo ""
+
+    echo "$result" | jq -r '.records[] |
+        "  \(.tool | .[0:6]) │ \(.tags | join(" ")) │ \(.files | join(", ") | .[0:50])"
+    ' 2>/dev/null || echo "  (no recent activity)"
+}
+
+cmd_intent_tags() {
+    local result=$(curl -s "${INDEX_URL}/intent/tags")
+
+    echo -e "${BOLD}Intent Tags${NC}"
+    echo ""
+
+    echo "$result" | jq -r '.tags[] | "  \(.tag) (\(.count) files)"' 2>/dev/null || echo "  (no tags yet)"
+}
+
+cmd_intent_files() {
+    local tag="$1"
+
+    if [ -z "$tag" ]; then
+        echo "Usage: aoa intent files <tag>"
+        echo "Example: aoa intent files authentication"
+        return 1
+    fi
+
+    local result=$(curl -s "${INDEX_URL}/intent/files?tag=${tag}")
+
+    local actual_tag=$(echo "$result" | jq -r '.tag')
+    echo -e "${BOLD}Files for ${actual_tag}${NC}"
+    echo ""
+
+    echo "$result" | jq -r '.files[]' 2>/dev/null || echo "  (no files)"
+}
+
+cmd_intent_file() {
+    local path="$1"
+
+    if [ -z "$path" ]; then
+        echo "Usage: aoa intent file <path>"
+        return 1
+    fi
+
+    local result=$(curl -s "${INDEX_URL}/intent/file?path=${path}")
+
+    echo -e "${BOLD}Tags for ${path}${NC}"
+    echo ""
+
+    echo "$result" | jq -r '.tags[]' 2>/dev/null || echo "  (no tags)"
+}
+
+cmd_intent_stats() {
+    local result=$(curl -s "${INDEX_URL}/intent/stats")
+
+    echo -e "${BOLD}Intent Index Stats${NC}"
+    echo ""
+
+    echo "$result" | jq -r '"  Records: \(.total_records)", "  Tags: \(.unique_tags)", "  Files: \(.unique_files)", "  Sessions: \(.sessions)"'
+}
+
+# =============================================================================
+# Utility Commands
+# =============================================================================
+
+cmd_health() {
+    echo -e "${BOLD}Claudacity Services${NC}"
+    echo ""
+
+    # Check index service
+    echo -n "Index service (${INDEX_URL}): "
+    if curl -s --connect-timeout 2 "${INDEX_URL}/health" > /dev/null 2>&1; then
+        local idx_health=$(curl -s "${INDEX_URL}/health")
+        local local_files=$(echo "$idx_health" | jq -r '.local.files')
+        local local_symbols=$(echo "$idx_health" | jq -r '.local.symbols')
+        local repo_count=$(echo "$idx_health" | jq '.repos | length')
+        echo -e "${GREEN}✓${NC} ${local_files} files, ${local_symbols} symbols (local)"
+        if [ "$repo_count" != "0" ]; then
+            echo -e "                              ${DIM}+ ${repo_count} knowledge repos${NC}"
+        fi
+    else
+        echo -e "${RED}✗ Not running${NC}"
+    fi
+
+    # Check status service
+    echo -n "Status service (${STATUS_URL}): "
+    if curl -s --connect-timeout 2 "${STATUS_URL}/health" > /dev/null 2>&1; then
+        echo -e "${GREEN}✓${NC} Running"
+    else
+        echo -e "${RED}✗ Not running${NC}"
+    fi
+
+    # Check Redis (via status service)
+    echo -n "Redis: "
+    if curl -s --connect-timeout 2 "${STATUS_URL}/session" > /dev/null 2>&1; then
+        echo -e "${GREEN}✓${NC} Connected"
+    else
+        echo -e "${YELLOW}? Unknown${NC}"
+    fi
+}
+
+cmd_history() {
+    local limit="${1:-20}"
+
+    curl -s "${STATUS_URL}/history?limit=${limit}" | jq -r '.events[] |
+        if .type == "request" then
+            "[\(.ts | strftime("%H:%M:%S"))] \(.model) in:\(.input) out:\(.output) $\(.cost)"
+        elif .type == "model_switch" then
+            "[\(.ts | strftime("%H:%M:%S"))] -> \(.model)"
+        elif .type == "block" then
+            "[\(.ts | strftime("%H:%M:%S"))] BLOCKED \(.block_type)"
+        else
+            "[\(.ts | strftime("%H:%M:%S"))] \(.type)"
+        end
+    '
+}
+
+cmd_reset() {
+    local target="${1:-session}"
+
+    case "$target" in
+        session)
+            curl -s -X POST "${STATUS_URL}/session/reset" | jq .
+            echo -e "${GREEN}Session reset${NC}"
+            ;;
+        weekly)
+            curl -s -X POST "${STATUS_URL}/weekly/reset" | jq .
+            echo -e "${GREEN}Weekly stats reset${NC}"
+            ;;
+        *)
+            echo "Usage: aoa reset [session|weekly]"
+            return 1
+            ;;
+    esac
+}
+
+cmd_whitelist() {
+    local subcmd="${1:-list}"
+    shift || true
+
+    case "$subcmd" in
+        list|ls)
+            curl -s "${INDEX_URL}/git/whitelist" | jq -r '
+                "Default hosts:", (.default_hosts[] | "  \(.)"),
+                "", "Custom hosts:",
+                (if .custom_hosts | length > 0 then (.custom_hosts[] | "  \(.)") else "  (none)" end)
+            '
+            ;;
+        add)
+            local host="$1"
+            if [ -z "$host" ]; then
+                echo "Usage: aoa whitelist add <host>"
+                echo "Example: aoa whitelist add git.company.com"
+                return 1
+            fi
+            curl -s -X POST "${INDEX_URL}/git/whitelist" \
+                -H "Content-Type: application/json" \
+                -d "{\"host\": \"${host}\"}" | jq .
+            ;;
+        remove|rm)
+            local host="$1"
+            if [ -z "$host" ]; then
+                echo "Usage: aoa whitelist remove <host>"
+                return 1
+            fi
+            curl -s -X DELETE "${INDEX_URL}/git/whitelist/${host}" | jq .
+            ;;
+        *)
+            echo -e "${BOLD}Whitelist Management${NC}"
+            echo ""
+            echo "Commands:"
+            echo "  aoa whitelist list         Show allowed URLs"
+            echo "  aoa whitelist add <host>   Add URL to whitelist"
+            echo "  aoa whitelist remove <h>   Remove URL from whitelist"
+            echo ""
+            echo "Examples:"
+            echo "  aoa whitelist add git.company.com"
+            echo "  aoa whitelist add docs.internal.org"
+            ;;
+    esac
+}
+
+cmd_help() {
+    cat << 'EOF'
+                              AOA
+                       Bold tools for Claude Code
+
+STATUS COMMANDS
+  status                 Show status line (context, cost, usage)
+  status --watch         Live updating status
+  status --json          Full metrics as JSON
+  history [limit]        Recent events
+  reset [session|weekly] Reset counters
+
+LOCAL SEARCH (your project - default)
+  search <term>          Find symbol/term in local codebase
+  multi <t1,t2,...>      Multi-term search
+  changes [time]         Recent file changes (e.g., 5m, 1h)
+  files [pattern]        List indexed files
+
+PATTERN SEARCH (agent-driven regex)
+  pattern '<json>'       Multi-pattern regex search
+    --repo <name>        Search in specific repo
+    --since <time>       Only files modified recently (e.g., 7d)
+
+INTENT TRACKING (semantic layer)
+  intent recent [since]  Recent intent records (e.g., 1h, 30m)
+  intent tags            All tags with file counts
+  intent files <tag>     Files associated with an intent tag
+  intent file <path>     Tags associated with a file
+  intent stats           Intent index statistics
+
+URL WHITELIST (network security)
+  whitelist list         Show allowed URLs
+  whitelist add <host>   Add URL (e.g., git.company.com)
+  whitelist remove <h>   Remove custom URL
+
+KNOWLEDGE REPOS (isolated reference code)
+  repo list              List knowledge repos
+  repo add <name> <url>  Clone and index a git repo
+  repo remove <name>     Remove a knowledge repo
+
+  repo <name> search <t> Search in a specific repo
+  repo <name> multi <ts> Multi-term search in repo
+  repo <name> files      List files in repo
+  repo <name> file <p>   Get file content from repo
+
+SYSTEM
+  health                 Check all services
+
+EXAMPLES
+  # Local project search (default)
+  aoa search handleAuth
+  aoa multi auth,session,token
+
+  # Add a knowledge repo for reference
+  aoa repo add flask https://github.com/pallets/flask
+
+  # Search ONLY in flask (isolated)
+  aoa repo flask search Blueprint
+  aoa repo flask files *.py
+
+PHILOSOPHY
+  - Local search is the default (your code)
+  - Knowledge repos are isolated reference material
+  - No mixing - repo code never pollutes local results
+  - Delete a repo = clean removal, no cleanup needed
+
+EOF
+}
+
+# =============================================================================
+# Main
+# =============================================================================
+
+main() {
+    local cmd="${1:-help}"
+    shift || true
+
+    case "$cmd" in
+        # Status
+        status|s)   cmd_status "$@" ;;
+        history|h)  cmd_history "$@" ;;
+        reset)      cmd_reset "$@" ;;
+
+        # Local Index
+        search)     cmd_search "$@" ;;
+        multi|m)    cmd_multi "$@" ;;
+        changes|c)  cmd_changes "$@" ;;
+        files|f)    cmd_files "$@" ;;
+
+        # Pattern Search
+        pattern|p)  cmd_pattern "$@" ;;
+
+        # Intent Tracking
+        intent|i)   cmd_intent "$@" ;;
+
+        # Whitelist Management
+        whitelist|w) cmd_whitelist "$@" ;;
+
+        # Knowledge Repos
+        repo|r)     cmd_repo "$@" ;;
+
+        # System
+        health)     cmd_health ;;
+        help|--help|-h) cmd_help ;;
+
+        *)
+            echo -e "${RED}Unknown command: $cmd${NC}"
+            echo "Run 'aoa help' for usage"
+            return 1
+            ;;
+    esac
+}
+
+main "$@"

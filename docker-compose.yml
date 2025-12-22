@@ -1,0 +1,135 @@
+# =============================================================================
+# aOa - Angle O(1)f Attack
+# Docker Compose Configuration
+# =============================================================================
+#
+# Network Architecture:
+#   - Internal network (NO internet) for all services except proxy
+#   - Single gateway port (8080) exposed to user
+#   - Proxy has controlled internet access (whitelisted URLs only)
+#
+# Transparency:
+#   curl localhost:8080/network   # See topology
+#   curl localhost:8080/verify    # Prove isolation
+#   curl localhost:8080/audit     # See all requests
+#
+# =============================================================================
+
+version: '3.8'
+
+services:
+  # ===========================================================================
+  # Gateway - Single entry point (ONLY exposed port)
+  # ===========================================================================
+  gateway:
+    build:
+      context: ./src/gateway
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - INDEX_URL=http://index:9999
+      - STATUS_URL=http://status:9998
+      - PROXY_URL=http://proxy:9997
+    networks:
+      - aoa-internal
+    depends_on:
+      - index
+      - status
+      - proxy
+    restart: unless-stopped
+
+  # ===========================================================================
+  # Index - Codebase search and intent tracking (NO internet)
+  # ===========================================================================
+  index:
+    build:
+      context: ./src/index
+      dockerfile: Dockerfile
+    volumes:
+      - ${CODEBASE_PATH:-.}:/codebase:ro
+      - repos-data:/repos:rw
+      - ./.aoa:/config:rw
+    environment:
+      - CODEBASE_ROOT=/codebase
+      - REPOS_ROOT=/repos
+      - CONFIG_DIR=/config
+      - REDIS_URL=redis://redis:6379/0
+    networks:
+      - aoa-internal
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  # ===========================================================================
+  # Status - Session metrics (NO internet)
+  # ===========================================================================
+  status:
+    build:
+      context: ./src/status
+      dockerfile: Dockerfile
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+    networks:
+      - aoa-internal
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  # ===========================================================================
+  # Redis - Hot-path storage (NO internet)
+  # ===========================================================================
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis-data:/data
+    networks:
+      - aoa-internal
+    restart: unless-stopped
+
+  # ===========================================================================
+  # Proxy - Controlled internet access (whitelisted URLs only)
+  # ===========================================================================
+  proxy:
+    build:
+      context: ./src/proxy
+      dockerfile: Dockerfile
+    volumes:
+      - repos-data:/repos:rw
+      - ./.aoa:/config:ro
+    environment:
+      - REPOS_ROOT=/repos
+      - WHITELIST_FILE=/config/whitelist.txt
+      - MAX_REPO_SIZE_MB=500
+      - CLONE_TIMEOUT=300
+    networks:
+      - aoa-internal   # Can talk to other services
+      - aoa-external   # Can reach internet (whitelisted only)
+    restart: unless-stopped
+
+# =============================================================================
+# Networks
+# =============================================================================
+
+networks:
+  # Internal - NO internet access
+  # The 'internal: true' flag prevents containers from reaching internet
+  aoa-internal:
+    driver: bridge
+    internal: true
+
+  # External - ONLY for proxy
+  # Only proxy service is on this network
+  aoa-external:
+    driver: bridge
+
+# =============================================================================
+# Volumes
+# =============================================================================
+
+volumes:
+  redis-data:
+    driver: local
+  repos-data:
+    driver: local

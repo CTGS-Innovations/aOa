@@ -1,0 +1,22 @@
+# aOa specific
+.aoa/*.db
+.aoa/*.sqlite
+repos/
+
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.Python
+*.egg-info/
+
+# Docker
+.env
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
