@@ -4,16 +4,29 @@ aOa Intent Prefetch - PreToolUse Hook
 
 Predicts related files before tool execution.
 Only activates after 10+ recorded intents (avoids cold-start noise).
+
+Output format matches aOa branding:
+  ⚡ aOa Prefetch │ 2.3ms │ 4 related files
 """
 
 import sys
 import json
 import os
+import time
 from urllib.request import Request, urlopen
 from urllib.error import URLError
+from urllib.parse import quote
 
 AOA_URL = os.environ.get("AOA_URL", "http://localhost:8080")
 MIN_INTENTS = 10  # Don't prefetch until we have enough data
+
+# ANSI colors for branding (matching status line)
+CYAN = "\033[36m"
+BOLD = "\033[1m"
+DIM = "\033[2m"
+YELLOW = "\033[33m"
+GREEN = "\033[32m"
+RESET = "\033[0m"
 
 
 def get_intent_count() -> int:
@@ -27,35 +40,106 @@ def get_intent_count() -> int:
         return 0
 
 
-def get_related_files(file_path: str) -> list:
-    """Get files related to the given path via shared intent tags."""
+def get_related_files(file_path: str) -> tuple[list, list]:
+    """
+    Get files related to the given path via shared intent tags.
+    Returns (related_files, tags_used)
+    """
     try:
-        # Get tags for this file
-        req = Request(f"{AOA_URL}/intent/file?path={file_path}")
+        # Get tags for this file (URL-encode the path)
+        encoded_path = quote(file_path, safe='')
+        req = Request(f"{AOA_URL}/intent/file?path={encoded_path}")
         with urlopen(req, timeout=1) as resp:
             data = json.loads(resp.read().decode('utf-8'))
             tags = data.get('tags', [])
 
         if not tags:
-            return []
+            return [], []
 
-        # Get files for the most common tag
+        # Get files for the most common tags
         related = set()
         for tag in tags[:3]:  # Top 3 tags
-            req = Request(f"{AOA_URL}/intent/files?tag={tag}")
+            clean_tag = tag.lstrip('#')
+            req = Request(f"{AOA_URL}/intent/files?tag={quote(clean_tag, safe='')}")
             with urlopen(req, timeout=1) as resp:
                 data = json.loads(resp.read().decode('utf-8'))
                 for f in data.get('files', []):
-                    if f != file_path:
+                    # Filter: must be a real file path
+                    if (f != file_path and
+                        not f.startswith('pattern:') and
+                        '/' in f and
+                        '.' in os.path.basename(f)):
                         related.add(f)
 
-        return list(related)[:5]  # Top 5 related files
+        return list(related)[:5], [t.lstrip('#') for t in tags[:3]]
 
+    except (URLError, Exception):
+        return [], []
+
+
+def get_predicted_next(file_path: str) -> list:
+    """Get predicted next files based on co-occurrence patterns."""
+    try:
+        encoded_path = quote(file_path, safe='')
+        req = Request(f"{AOA_URL}/predict?file={encoded_path}&limit=3")
+        with urlopen(req, timeout=1) as resp:
+            data = json.loads(resp.read().decode('utf-8'))
+            return data.get('predictions', [])
     except (URLError, Exception):
         return []
 
 
+def format_output(file_path: str, related: list, predicted: list, tags: list, elapsed_ms: float) -> str:
+    """Format prefetch output with aOa branding."""
+    project_root = os.environ.get('CLAUDE_PROJECT_DIR', '/home/corey/aOa')
+
+    def rel_path(p):
+        if p.startswith(project_root):
+            return p[len(project_root):].lstrip('/')
+        return os.path.basename(p)
+
+    # Build the header line (matches status line style)
+    # ⚡ aOa Prefetch │ 2.3ms │ 4 related │ hooks python
+    parts = [
+        f"{CYAN}{BOLD}⚡ aOa Prefetch{RESET}",
+        f"{DIM}│{RESET}",
+        f"{GREEN}{elapsed_ms:.1f}ms{RESET}",
+    ]
+
+    count = len(related) + len(predicted)
+    if count > 0:
+        parts.extend([f"{DIM}│{RESET}", f"{count} files"])
+
+    if tags:
+        parts.extend([f"{DIM}│{RESET}", f"{YELLOW}{' '.join(tags)}{RESET}"])
+
+    header = " ".join(parts)
+
+    # Build file list
+    lines = [header]
+
+    if predicted:
+        pred_paths = [rel_path(p) for p in predicted[:3]]
+        lines.append(f"  {BOLD}Next →{RESET} {', '.join(pred_paths)}")
+
+    if related:
+        # Dedupe and format
+        seen = set()
+        unique = []
+        for r in related:
+            rp = rel_path(r)
+            if rp not in seen and len(rp) > 2:  # Filter junk
+                seen.add(rp)
+                unique.append(rp)
+        if unique:
+            lines.append(f"  {DIM}Related:{RESET} {', '.join(unique[:5])}")
+
+    return '\n'.join(lines)
+
+
 def main():
+    start_time = time.perf_counter()
+
     try:
         data = json.load(sys.stdin)
     except (json.JSONDecodeError, Exception):
@@ -72,13 +156,19 @@ def main():
     if not file_path:
         return
 
-    related = get_related_files(file_path)
+    # Get related files via tags
+    related, tags = get_related_files(file_path)
 
-    if related:
-        # Future: inject suggestions into Claude's context
-        # For now, just output for debugging (visible in verbose mode)
-        # print(f"[aOa] Related: {', '.join(related)}")
-        pass
+    # Get predicted next files via co-occurrence (if endpoint exists)
+    predicted = get_predicted_next(file_path)
+
+    # Calculate elapsed time
+    elapsed_ms = (time.perf_counter() - start_time) * 1000
+
+    # Output prefetch suggestions if we have any
+    if related or predicted:
+        output = format_output(file_path, related, predicted, tags, elapsed_ms)
+        print(output, file=sys.stderr)
 
 
 if __name__ == "__main__":

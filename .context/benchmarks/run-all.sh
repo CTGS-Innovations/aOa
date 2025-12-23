@@ -143,7 +143,7 @@ main() {
     # Parse arguments
     if [[ $# -eq 0 ]]; then
         # Default: run all phases
-        phases=("phase1")  # Add more as we create them
+        phases=("phase1" "phase2")  # Phase 2 runs in feasibility mode by default
     else
         for arg in "$@"; do
             case "$arg" in
