@@ -55,12 +55,12 @@
 
 | # | Task | Expected Output | Solution Pattern | Deps | Status | C | R |
 |---|------|-----------------|------------------|------|--------|---|---|
-| P2-001 | Implement confidence calculation | Score 0.0-1.0 per file | Normalize composite score | P1-007 | Active | 🟡 | GH |
+| P2-001 | Implement confidence calculation | Score 0.0-1.0 per file | Calibrated linear + evidence weighting | P1-007 | Active | 🟢 | ✓ |
 | P2-002 | Create /predict endpoint | `GET /predict?tags=X,Y` returns predictions | New route using scorer | P2-001 | Queued | 🟢 | - |
-| P2-003 | Update intent-prefetch.py | Output predictions to Claude | Call /predict, format output | P2-002 | Queued | 🔴 | 131 |
+| P2-003 | Update intent-prefetch.py | Output predictions to Claude | JSON additionalContext format | P2-002 | Queued | 🟢 | ✓ |
 | P2-004 | Implement context peek | First N lines of predicted files | Read + truncate in prefetch | P2-003 | Queued | 🟢 | - |
-| P2-005 | Add UserPromptSubmit hook | Predict on prompt submission | New hook event handler | P2-003 | Queued | 🔴 | 131 |
-| P2-006 | Confidence threshold tuning | Only show predictions above X% | Configurable threshold | P2-004 | Queued | 🟡 | - |
+| P2-005 | Add UserPromptSubmit hook | Predict on prompt submission | JSON additionalContext + keyword extraction | P2-003 | Queued | 🟢 | ✓ |
+| P2-006 | Confidence threshold tuning | Only show predictions above X% | Start at 0.50, tune in P4 | P2-004 | Queued | 🟢 | - |
 
 ---
 
@@ -143,19 +143,19 @@ Phase 3 adds:
 
 ## Confidence Assessment Rationale
 
-### 🟢 (Confident) - 15 tasks
+### 🟢 (Confident) - Phase 2 fully researched
 - Standard CRUD operations, package creation, endpoint patterns
 - Direct parallels in existing codebase (indexer.py endpoints)
 - Well-documented Redis operations
+- **P2-001**: Calibrated linear + evidence weighting (see details/p2-001-confidence-research.md)
+- **P2-003**: JSON additionalContext format documented (see details/p2-003-prehook-research.md)
+- **P2-005**: UserPromptSubmit hook config exists (see details/p2-005-userpromptsubmit-research.md)
 
-### 🟡 (Uncertain) - 8 tasks
-- Integration points between components
-- Score normalization (math needs validation)
-- Threshold tuning (iterative)
+### 🟡 (Uncertain) - 5 tasks remaining
+- P3-001: /context endpoint integration
+- P4-002: Hit rate calculation methodology
+- P4-005: Dashboard metrics approach
 
-### 🔴 (Lost) - 5 tasks
-- **P1-008 (Decay)**: Lua scripting in Redis, scheduling approach unclear
-- **P2-003 (PreHook output)**: How does Claude Code parse hook stdout?
-- **P2-005 (UserPromptSubmit)**: Hook event behavior undocumented
+### 🔴 (Lost) - 3 tasks (future phases)
 - **P3-003 (Semantic matching)**: NLP approach vs simple keyword extraction?
 - **P4-003/P4-006 (Weight tuning)**: Gradient descent or simpler heuristic?
