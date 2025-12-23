@@ -49,11 +49,13 @@ services:
       - ${CODEBASE_PATH:-.}:/codebase:ro
       - repos-data:/repos:rw
       - ./.aoa:/config:rw
+      - ~/.claude:/claude-sessions:ro
     environment:
       - CODEBASE_ROOT=/codebase
       - REPOS_ROOT=/repos
       - CONFIG_DIR=/config
       - REDIS_URL=redis://redis:6379/0
+      - CLAUDE_SESSIONS=/claude-sessions
     networks:
       - aoa-internal
     depends_on:

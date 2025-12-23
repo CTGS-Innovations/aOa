@@ -15,8 +15,10 @@ from urllib.error import URLError
 from datetime import datetime
 
 AOA_URL = os.environ.get("AOA_URL", "http://localhost:8080")
-SESSION_ID = os.environ.get("AOA_SESSION_ID", datetime.now().strftime("%Y%m%d"))
 STATUS_FILE = os.environ.get("AOA_STATUS_FILE", os.path.expanduser("~/.aoa/status.json"))
+
+# Session ID fallback (overridden by Claude's session_id from stdin)
+DEFAULT_SESSION_ID = os.environ.get("AOA_SESSION_ID", datetime.now().strftime("%Y%m%d"))
 
 # Intent patterns: (regex, [tags])
 INTENT_PATTERNS = [
@@ -157,7 +159,29 @@ def update_status_file(tool: str, files: list, tags: list):
         pass  # Never block
 
 
-def send_intent(tool: str, files: list, tags: list):
+def check_prediction_hit(session_id: str, file_path: str):
+    """Check if this file access was predicted (QW-3: Phase 2)."""
+    if not file_path or file_path.startswith('pattern:'):
+        return
+
+    try:
+        payload = json.dumps({
+            'session_id': session_id,
+            'file': file_path
+        }).encode('utf-8')
+
+        req = Request(
+            f"{AOA_URL}/predict/check",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST"
+        )
+        urlopen(req, timeout=1)
+    except (URLError, Exception):
+        pass  # Fire and forget
+
+
+def send_intent(tool: str, files: list, tags: list, session_id: str, tool_use_id: str = None):
     """Send intent to aOa (fire-and-forget)."""
     if not files:
         return
@@ -165,11 +189,18 @@ def send_intent(tool: str, files: list, tags: list):
     # Update local status file (for status line)
     update_status_file(tool, files, tags)
 
+    # Check if this file was predicted (QW-3: Phase 2 hit/miss tracking)
+    # Only check for Read operations - those are what we're trying to predict
+    if tool == 'Read':
+        for file_path in files:
+            check_prediction_hit(session_id, file_path)
+
     payload = json.dumps({
-        "session_id": SESSION_ID,
+        "session_id": session_id,
         "tool": tool,
         "files": files,
         "tags": tags,
+        "tool_use_id": tool_use_id,  # Claude's correlation key
     }).encode('utf-8')
 
     try:
@@ -182,6 +213,28 @@ def send_intent(tool: str, files: list, tags: list):
         urlopen(req, timeout=2)
     except (URLError, Exception):
         pass  # Graceful failure - never block Claude
+
+    # Record file accesses for ranking (Phase 1)
+    # Strip # from tags for scoring
+    score_tags = [t.lstrip('#') for t in tags]
+    for file_path in files:
+        # Skip pattern entries and non-file paths
+        if file_path.startswith('pattern:') or not file_path.startswith('/'):
+            continue
+        try:
+            score_payload = json.dumps({
+                "file": file_path,
+                "tags": score_tags,
+            }).encode('utf-8')
+            req = Request(
+                f"{AOA_URL}/rank/record",
+                data=score_payload,
+                headers={"Content-Type": "application/json"},
+                method="POST"
+            )
+            urlopen(req, timeout=1)
+        except (URLError, Exception):
+            pass  # Never block
 
 
 def main():
@@ -199,14 +252,18 @@ def main():
     if debug:
         print(f"[aOa] Input: {json.dumps(data, indent=2)}", file=sys.stderr)
 
+    # Extract Claude's correlation keys (QW-1: Phase 2 session linkage)
+    session_id = data.get('session_id', DEFAULT_SESSION_ID)
+    tool_use_id = data.get('tool_use_id')  # Claude's toolu_xxx ID
+
     tool = data.get('tool_name', data.get('tool', 'unknown'))
     files = extract_files(data)
     tags = infer_tags(files, tool)
 
     if debug:
-        print(f"[aOa] Tool: {tool}, Files: {files}, Tags: {tags}", file=sys.stderr)
+        print(f"[aOa] Session: {session_id}, Tool: {tool}, Files: {files}, Tags: {tags}", file=sys.stderr)
 
-    send_intent(tool, files, tags)
+    send_intent(tool, files, tags, session_id, tool_use_id)
 
 
 if __name__ == "__main__":

@@ -4,6 +4,7 @@ aOa Scorer - File Ranking by Recency, Frequency, and Tag Affinity
 Provides predictive file scoring for prefetch optimization.
 """
 
+import math
 import time
 from typing import Dict, List, Optional, Tuple
 
@@ -27,6 +28,12 @@ class Scorer:
 
     # Decay settings
     RECENCY_HALF_LIFE = 3600  # 1 hour: recency score halves
+
+    # Confidence calculation settings (P2-001)
+    MIN_ACCESSES_FULL_CONFIDENCE = 20  # Accesses needed for max evidence factor
+    MIN_HOURS_FULL_CONFIDENCE = 24     # Hours needed for max stability factor
+    EVIDENCE_WEIGHT = 0.7              # Weight for evidence factor
+    STABILITY_WEIGHT = 0.3             # Weight for stability factor
 
     def __init__(self, redis_client: Optional[RedisClient] = None, db: Optional[int] = None):
         """
@@ -70,6 +77,11 @@ class Scorer:
         frequency_key = RedisClient.PREFIX_FREQUENCY
         scores['frequency'] = self.redis.zincrby(frequency_key, 1, file_path)
 
+        # Track first_seen for confidence calculation (P2-001)
+        # Use SETNX to only set if key doesn't exist
+        first_seen_key = f"aoa:first_seen:{file_path}"
+        self.redis.client.setnx(first_seen_key, ts)
+
         # Update tag affinity (increment each tag's score for this file)
         for tag in tags:
             tag_key = f"{RedisClient.PREFIX_TAG}:{tag}"
@@ -94,6 +106,55 @@ class Scorer:
         """Get tag affinity score for a file and tag."""
         tag_key = f"{RedisClient.PREFIX_TAG}:{tag}"
         return self.redis.zscore(tag_key, file_path)
+
+    def get_first_seen(self, file_path: str) -> Optional[float]:
+        """Get first_seen timestamp for a file."""
+        first_seen_key = f"aoa:first_seen:{file_path}"
+        val = self.redis.client.get(first_seen_key)
+        if val:
+            return float(val.decode() if isinstance(val, bytes) else val)
+        return None
+
+    # =========================================================================
+    # Confidence Calculation (P2-001)
+    # =========================================================================
+
+    def calculate_confidence(self, composite: float, access_count: int,
+                             time_span_hours: float) -> float:
+        """
+        Calculate confidence score from composite score and evidence.
+
+        Confidence reflects BOTH the score AND how much evidence we have.
+        High score + few accesses = low confidence (might be noise)
+        Medium score + many accesses = higher confidence (reliable pattern)
+
+        Args:
+            composite: Weighted score 0-100
+            access_count: Total accesses recorded for this file
+            time_span_hours: Hours since first access
+
+        Returns:
+            Confidence 0.0-1.0
+        """
+        # Base confidence from composite (0-1)
+        base = composite / 100.0
+
+        # Evidence factor: more accesses = more confident
+        # Uses log scale: 1 access = 0.3, 5 = 0.6, 20+ = 0.9+
+        evidence = min(1.0, 0.3 + 0.7 * math.log1p(access_count) /
+                       math.log1p(self.MIN_ACCESSES_FULL_CONFIDENCE))
+
+        # Time stability factor: longer history = more stable
+        # Ramps up over 24 hours
+        stability = min(1.0, 0.5 + 0.5 * time_span_hours /
+                        self.MIN_HOURS_FULL_CONFIDENCE)
+
+        # Combined confidence
+        # Weight base score by evidence (more important) and stability (less important)
+        confidence = base * (self.EVIDENCE_WEIGHT * evidence +
+                            self.STABILITY_WEIGHT * stability)
+
+        return round(confidence, 4)
 
     # =========================================================================
     # Ranking
@@ -182,12 +243,30 @@ class Scorer:
                               key=lambda x: x[1]['composite'],
                               reverse=True)[:limit]
 
-        # Build response
+        # Build response with confidence calculation
         ranked_files = []
         for file_path, scores in sorted_files:
+            # Get raw access count for confidence calculation
+            raw_freq = self.get_frequency_score(file_path) or 1
+
+            # Get first_seen for time span calculation
+            first_seen = self.get_first_seen(file_path)
+            if first_seen:
+                time_span_hours = (now - first_seen) / 3600
+            else:
+                time_span_hours = 0
+
+            # Calculate calibrated confidence (P2-001)
+            confidence = self.calculate_confidence(
+                composite=scores['composite'],
+                access_count=int(raw_freq),
+                time_span_hours=time_span_hours
+            )
+
             entry = {
                 'file': file_path,
                 'score': round(scores['composite'], 4),
+                'confidence': confidence,
                 'recency': round(scores['recency'], 2),
                 'frequency': round(scores['frequency'], 2),
             }

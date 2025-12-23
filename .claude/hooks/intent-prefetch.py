@@ -89,6 +89,31 @@ def get_predicted_next(file_path: str) -> list:
         return []
 
 
+def log_prediction(session_id: str, predicted_files: list, tags: list, trigger_file: str):
+    """Log a prediction to Redis for later hit/miss comparison."""
+    if not predicted_files:
+        return
+
+    try:
+        payload = json.dumps({
+            'session_id': session_id,
+            'predicted_files': predicted_files,
+            'tags': tags,
+            'trigger_file': trigger_file,
+            'confidence': 0.8  # TODO: Calculate real confidence
+        }).encode('utf-8')
+
+        req = Request(
+            f"{AOA_URL}/predict/log",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST"
+        )
+        urlopen(req, timeout=1)
+    except (URLError, Exception):
+        pass  # Fire and forget
+
+
 def format_output(file_path: str, related: list, predicted: list, tags: list, elapsed_ms: float) -> str:
     """Format prefetch output with aOa branding."""
     project_root = os.environ.get('CLAUDE_PROJECT_DIR', '/home/corey/aOa')
@@ -149,6 +174,9 @@ def main():
     if get_intent_count() < MIN_INTENTS:
         return
 
+    # Extract session_id for prediction tracking (QW-2: Phase 2)
+    session_id = data.get('session_id', 'unknown')
+
     # Extract file path from tool input
     tool_input = data.get('tool_input', {})
     file_path = tool_input.get('file_path') or tool_input.get('path')
@@ -169,6 +197,10 @@ def main():
     if related or predicted:
         output = format_output(file_path, related, predicted, tags, elapsed_ms)
         print(output, file=sys.stderr)
+
+        # Log prediction to Redis for hit/miss tracking (QW-2)
+        all_predicted = list(set(related + predicted))
+        log_prediction(session_id, all_predicted, tags, file_path)
 
 
 if __name__ == "__main__":

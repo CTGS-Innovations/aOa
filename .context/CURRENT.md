@@ -1,96 +1,88 @@
 # aOa Context Intelligence - Beacon
 
-> **Session**: 04 | **Date**: 2025-12-23
-> **Phase**: 2 - Predictive Prefetch + Correlation
-> **Strategic Review Complete**: All P2-P4 researched, all tasks green
+> **Session**: 06 | **Date**: 2025-12-23
+> **Phase**: 3 - Transition Model
+> **Previous**: Phase 2 complete (7/7 tasks)
 
 ---
 
 ## Now
 
-Strategic research complete. Six deep-dive documents cover every phase. Key insight: Claude's session logs are ground truth - no complex NLP needed. Start with Quick Wins to prove concept in 4.5 hours.
-
-## Quick Wins (Do First)
-
-| # | Win | Effort | Impact |
-|---|-----|--------|--------|
-| QW-1 | Extract session_id from hooks | 30 min | Enables all correlation |
-| QW-2 | Log predictions to Redis | 1 hr | Hit rate becomes measurable |
-| QW-3 | Compare predictions to actual reads | 2 hr | Proves accuracy |
-| QW-4 | Show hit rate in `aoa health` | 1 hr | User sees value immediately |
-
-**Total**: 4.5 hours to prove predictive prefetch works.
+P3-001 and P3-002 COMPLETE. Transition model working:
+- 49 sessions parsed, 165 reads extracted
+- 57 source files, 94 transitions stored in Redis
+- `/predict?file=X` now boosts predictions using transitions
 
 ## Active
 
 | # | Task | Solution Pattern | C | R |
 |---|------|------------------|---|---|
-| QW-1 | Extract session_id from hooks | Parse stdin JSON in intent-capture.py | Green | Done |
+| P3-003 | Keyword extraction | Reuse INTENT_PATTERNS from hooks | 🟢 | ✓ |
+
+## Completed This Session
+
+| # | Task | Result |
+|---|------|--------|
+| P3-001 | Session log parser | `src/ranking/session_parser.py` - parses Claude JSONL |
+| P3-002 | Transition matrix | 94 transitions in Redis, integrated into `/predict` |
+
+## Queued
+
+| # | Task | Solution Pattern | C | R |
+|---|------|------------------|---|---|
+| P3-004 | /context endpoint | Combine transitions + tags + keywords | 🟢 | ✓ |
+| P3-005 | `aoa context` CLI | CLI wrapper for /context | 🟢 | - |
+| P3-006 | Caching layer | Redis cache for common intents | 🟢 | ✓ |
 
 ## Blocked
 
 - None
 
-## Next (After Quick Wins)
-
-1. **P2-001**: Confidence calculation (0.0-1.0 per file)
-2. **P2-004**: `/predict` endpoint (files + confidence)
-3. **P2-005**: Snippet prefetch (first N lines)
-4. **P2-007**: UserPromptSubmit hook integration
-
-## Key Files
+## Key Files Created
 
 ```
-src/hooks/intent-capture.py  # Add session_id extraction (QW-1)
-src/ranking/scorer.py        # Prediction logging (QW-2, QW-3)
-src/index/indexer.py         # /rank exists, needs /predict
-gateway.py                   # Health endpoint (QW-4)
+src/ranking/session_parser.py    # New - parses Claude session logs
+docker-compose.yml               # Modified - mounts ~/.claude
+src/index/indexer.py             # Modified - /transitions/* endpoints
+src/gateway/gateway.py           # Modified - routes for transitions
 ```
 
-## Strategic Documents (All Complete)
-
-| Document | Focus |
-|----------|-------|
-| strategic-board-refresh.md | Enhanced roadmap - session logs eliminate 60% complexity |
-| strategic-session-reward.md | Claude logs provide complete reward signal |
-| strategic-log-correlation.md | session_id + tool_use_id enable perfect correlation |
-| strategic-hidden-insights.md | Token economics prove ROI, 15 use cases found |
-| strategic-overall-review.md | System assessment, cold start challenges |
-| p2-001-confidence-research.md | Calibrated linear + evidence weighting |
-
-## Test Commands
+## New API Endpoints
 
 ```bash
-# Health check
-aoa health
+# Sync transitions from Claude logs to Redis
+curl -X POST "localhost:8080/transitions/sync" -H "Content-Type: application/json" -d '{}'
 
-# Record file access (builds scores)
-curl -X POST "localhost:8080/rank/record" \
-  -H "Content-Type: application/json" \
-  -d '{"file": "src/index/indexer.py", "tags": ["python", "api"]}'
+# Get transition predictions for a file
+curl "localhost:8080/transitions/predict?file=.context/CURRENT.md"
 
-# Get ranked files
-curl "localhost:8080/rank?limit=10"
+# Get transition stats
+curl "localhost:8080/transitions/stats"
 
-# Run benchmarks
-cd /home/corey/aOa/.context/benchmarks && python -m pytest -v
+# Integrated prediction (uses transitions when file param provided)
+curl "localhost:8080/predict?file=.context/CURRENT.md&snippet_lines=0"
 ```
+
+## Transition Model Stats
+
+```
+Sessions parsed: 49
+Total reads: 165
+Unique files: 70
+Source files with transitions: 57
+Total transitions: 94
+
+Top transition: .context/CURRENT.md -> .context/BOARD.md (70% probability)
+```
+
+## Next Action
+
+P3-003: Pattern-based keyword extraction from intent text.
 
 ## Resume Command
 
 ```bash
-# Read strategic insights first
-cat /home/corey/aOa/.context/details/strategic-board-refresh.md
-
-# Then start QW-1: Extract session_id from intent-capture.py
-# See: strategic-log-correlation.md for session_id format
+# Continue with P3-003: Keyword extraction
+# Reuse INTENT_PATTERNS from intent-capture.py
+# Extract keywords from natural language intent
 ```
-
-## Phase Summary
-
-| Phase | Status | Next Step |
-|-------|--------|-----------|
-| 1 - Redis Scoring | Complete | 6/6 rubrics pass |
-| 2 - Prefetch + Correlation | Active | Quick Wins first |
-| 3 - Transition Model | Queued | After Phase 2 |
-| 4 - Weight Optimization | Queued | After Phase 3 |

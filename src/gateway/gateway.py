@@ -67,6 +67,20 @@ ROUTES = {
     "/rank/stats": ("index", "/rank/stats"),
     "/rank/record": ("index", "/rank/record"),
 
+    # Prediction tracking routes (Phase 2)
+    "/predict": ("index", "/predict"),
+    "/predict/log": ("index", "/predict/log"),
+    "/predict/check": ("index", "/predict/check"),
+    "/predict/stats": ("index", "/predict/stats"),
+
+    # Transition model routes (Phase 3)
+    "/transitions/sync": ("index", "/transitions/sync"),
+    "/transitions/predict": ("index", "/transitions/predict"),
+    "/transitions/stats": ("index", "/transitions/stats"),
+
+    # Context API (Phase 3)
+    "/context": ("index", "/context"),
+
     # Status service routes
     "/status": ("status", "/status"),
     "/status/json": ("status", "/status/json"),

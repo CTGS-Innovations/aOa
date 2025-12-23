@@ -76,6 +76,7 @@ class IntentRecord:
     tool: str
     files: List[str]
     tags: List[str]
+    tool_use_id: Optional[str] = None  # Claude's toolu_xxx correlation key
 
 
 class CodebaseIndex:
@@ -560,14 +561,15 @@ class IntentIndex:
         self.session_intents: Dict[str, List[IntentRecord]] = defaultdict(list)
         self.lock = threading.RLock()
 
-    def record(self, tool: str, files: List[str], tags: List[str], session_id: str):
+    def record(self, tool: str, files: List[str], tags: List[str], session_id: str, tool_use_id: str = None):
         """Record an intent from a tool use."""
         record = IntentRecord(
             timestamp=int(time.time()),
             session_id=session_id,
             tool=tool,
             files=files,
-            tags=tags
+            tags=tags,
+            tool_use_id=tool_use_id
         )
 
         with self.lock:
@@ -1221,7 +1223,8 @@ def record_intent():
         "tool": "Edit",
         "files": ["/path/to/file.py"],
         "tags": ["#authentication", "#editing"],
-        "session_id": "abc123"
+        "session_id": "abc123",
+        "tool_use_id": "toolu_xxx"  # Claude's correlation key
     }
     """
     data = request.json
@@ -1230,8 +1233,9 @@ def record_intent():
     files = data.get('files', [])
     tags = data.get('tags', [])
     session_id = data.get('session_id', 'unknown')
+    tool_use_id = data.get('tool_use_id')  # Claude's toolu_xxx ID
 
-    intent_index.record(tool, files, tags, session_id)
+    intent_index.record(tool, files, tags, session_id, tool_use_id)
 
     return jsonify({'success': True})
 
@@ -1302,6 +1306,353 @@ def intent_session():
 def intent_stats():
     """Get intent index statistics."""
     return jsonify(intent_index.get_stats())
+
+
+# ============================================================================
+# Prediction Tracking API - Phase 2 Session Correlation
+# ============================================================================
+
+@app.route('/predict/log', methods=['POST'])
+def log_prediction():
+    """
+    Log a prediction for later hit/miss comparison.
+
+    POST body:
+    {
+        "session_id": "uuid-xxx",
+        "predicted_files": ["/src/file1.py", "/src/file2.py"],
+        "tags": ["python", "api"],
+        "trigger_file": "/src/current.py",
+        "confidence": 0.85
+    }
+    """
+    if not RANKING_AVAILABLE or scorer is None:
+        return jsonify({'error': 'Redis not available'}), 503
+
+    data = request.json
+    session_id = data.get('session_id', 'unknown')
+    predicted_files = data.get('predicted_files', [])
+    tags = data.get('tags', [])
+    trigger_file = data.get('trigger_file', '')
+    confidence = data.get('confidence', 0.0)
+
+    if not predicted_files:
+        return jsonify({'success': True, 'logged': 0})
+
+    try:
+        # Store prediction in Redis with TTL (60 seconds - predictions expire)
+        import time as time_module
+        timestamp_ms = int(time_module.time() * 1000)
+        prediction_key = f"aoa:prediction:{session_id}:{timestamp_ms}"
+
+        prediction_data = {
+            'session_id': session_id,
+            'timestamp_ms': timestamp_ms,
+            'predicted_files': predicted_files,
+            'tags': tags,
+            'trigger_file': trigger_file,
+            'confidence': confidence
+        }
+
+        # Store prediction with 60s TTL
+        scorer.redis.client.setex(
+            prediction_key,
+            60,  # 60 second TTL
+            json.dumps(prediction_data)
+        )
+
+        # Also add to session's prediction list for quick lookup
+        session_predictions_key = f"aoa:predictions:{session_id}"
+        scorer.redis.client.lpush(session_predictions_key, prediction_key)
+        scorer.redis.client.expire(session_predictions_key, 3600)  # 1 hour TTL for session
+
+        return jsonify({
+            'success': True,
+            'logged': len(predicted_files),
+            'prediction_key': prediction_key
+        })
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/predict/check', methods=['POST'])
+def check_prediction_hit():
+    """
+    Check if a file access was predicted (called by intent-capture after Read).
+
+    POST body:
+    {
+        "session_id": "uuid-xxx",
+        "file": "/src/file.py"
+    }
+
+    Returns whether this file was in recent predictions.
+    """
+    if not RANKING_AVAILABLE or scorer is None:
+        return jsonify({'hit': False, 'error': 'Redis not available'}), 503
+
+    data = request.json
+    session_id = data.get('session_id', 'unknown')
+    file_path = data.get('file', '')
+
+    if not file_path:
+        return jsonify({'hit': False})
+
+    try:
+        # Get recent predictions for this session
+        session_predictions_key = f"aoa:predictions:{session_id}"
+        prediction_keys = scorer.redis.client.lrange(session_predictions_key, 0, 10)
+
+        for pred_key in prediction_keys:
+            pred_data = scorer.redis.client.get(pred_key)
+            if pred_data:
+                prediction = json.loads(pred_data)
+                if file_path in prediction.get('predicted_files', []):
+                    # Record the hit
+                    scorer.redis.client.incr('aoa:metrics:hits')
+                    return jsonify({
+                        'hit': True,
+                        'prediction_key': pred_key.decode() if isinstance(pred_key, bytes) else pred_key,
+                        'confidence': prediction.get('confidence', 0)
+                    })
+
+        # No hit - record miss
+        scorer.redis.client.incr('aoa:metrics:misses')
+        return jsonify({'hit': False})
+
+    except Exception as e:
+        return jsonify({'hit': False, 'error': str(e)}), 500
+
+
+@app.route('/predict/stats')
+def prediction_stats():
+    """Get prediction hit/miss statistics."""
+    if not RANKING_AVAILABLE or scorer is None:
+        return jsonify({'error': 'Redis not available'}), 503
+
+    try:
+        hits = int(scorer.redis.client.get('aoa:metrics:hits') or 0)
+        misses = int(scorer.redis.client.get('aoa:metrics:misses') or 0)
+        total = hits + misses
+        hit_rate = (hits / total * 100) if total > 0 else 0
+
+        return jsonify({
+            'hits': hits,
+            'misses': misses,
+            'total': total,
+            'hit_rate': round(hit_rate, 1)
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/predict')
+def predict_files():
+    """
+    Get predicted files with optional snippet prefetch.
+
+    This is the main prediction endpoint for P2-005.
+    Returns ranked files with first N lines of each file for context injection.
+
+    Query params:
+        tags: Comma-separated tags to filter/boost by (optional)
+        keywords: Comma-separated keywords from prompt (optional, treated as tags)
+        limit: Maximum files to return (default: 5)
+        snippet_lines: Number of lines to prefetch per file (default: 20, 0 to disable)
+        file: Trigger file for co-occurrence lookup (optional)
+
+    Returns:
+        {
+            "files": [
+                {
+                    "path": "/src/api/routes.py",
+                    "confidence": 0.85,
+                    "snippet": "first 20 lines..."
+                }
+            ],
+            "predictions": ["/src/api/routes.py", ...],  # Simple list for backward compat
+            "ms": 4.2
+        }
+    """
+    start = time.time()
+
+    if not RANKING_AVAILABLE or scorer is None:
+        return jsonify({
+            'error': 'Ranking module not available',
+            'files': [],
+            'predictions': [],
+            'ms': (time.time() - start) * 1000
+        }), 503
+
+    # Parse parameters
+    tag_param = request.args.get('tags', request.args.get('tag', ''))
+    keyword_param = request.args.get('keywords', '')
+    file_param = request.args.get('file', '')
+
+    # Combine tags and keywords
+    tags = [t.strip().lstrip('#') for t in tag_param.split(',') if t.strip()]
+    keywords = [k.strip() for k in keyword_param.split(',') if k.strip()]
+    all_tags = list(set(tags + keywords))
+
+    limit = int(request.args.get('limit', 5))
+    snippet_lines = int(request.args.get('snippet_lines', 20))
+
+    try:
+        # Get ranked files from scorer
+        results = scorer.get_ranked_files(tags=all_tags if all_tags else None, limit=limit * 2)
+
+        # Get transition predictions if trigger file provided
+        transition_preds = {}
+        transition_boost = 0.0
+        project_root = os.environ.get('CODEBASE_ROOT', '/codebase')
+        host_root = '/home/corey/aOa'
+
+        if file_param and SESSION_PARSER_AVAILABLE:
+            try:
+                # Try with the file param as-is first
+                trans_results = SessionLogParser.predict_next(scorer.redis, file_param, limit=10)
+
+                # If no results, try normalizing the path
+                if not trans_results and file_param.startswith(host_root):
+                    normalized = file_param[len(host_root) + 1:]  # Remove /home/corey/aOa/
+                    trans_results = SessionLogParser.predict_next(scorer.redis, normalized, limit=10)
+                elif not trans_results and file_param.startswith(project_root):
+                    normalized = file_param[len(project_root) + 1:]  # Remove /codebase/
+                    trans_results = SessionLogParser.predict_next(scorer.redis, normalized, limit=10)
+
+                # Store predictions with both absolute and relative paths for matching
+                for f, prob in trans_results:
+                    transition_preds[f] = prob
+                    # Also store absolute path variant
+                    if not f.startswith('/'):
+                        transition_preds[os.path.join(host_root, f)] = prob
+
+                transition_boost = 0.3  # Boost factor for transition matches
+            except Exception:
+                pass  # Transitions are optional enhancement
+
+        # Build response with snippets
+        files = []
+        seen_paths = set()
+
+        for r in results:
+            file_path = r['file']
+            # Use calibrated confidence from scorer (P2-001)
+            # Falls back to normalized score for backward compatibility
+            confidence = r.get('confidence', min(r.get('score', 0.0) / 100.0, 1.0))
+
+            # Boost confidence if file is also predicted by transitions
+            if file_path in transition_preds:
+                trans_prob = transition_preds[file_path]
+                confidence = min(1.0, confidence + trans_prob * transition_boost)
+
+            file_data = {
+                'path': file_path,
+                'confidence': round(confidence, 3)
+            }
+
+            # Read snippet if requested
+            if snippet_lines > 0:
+                snippet = read_file_snippet(file_path, snippet_lines)
+                if snippet:
+                    file_data['snippet'] = snippet
+
+            files.append(file_data)
+            seen_paths.add(file_path)
+
+            if len(files) >= limit:
+                break
+
+        # Add high-probability transition predictions not in scorer results
+        if transition_preds and len(files) < limit:
+            for trans_file, trans_prob in sorted(transition_preds.items(),
+                                                  key=lambda x: x[1], reverse=True):
+                if trans_file not in seen_paths and trans_prob >= 0.1:
+                    file_data = {
+                        'path': trans_file,
+                        'confidence': round(trans_prob * 0.8, 3),  # Scale down since not in scorer
+                        'source': 'transition'
+                    }
+                    if snippet_lines > 0:
+                        snippet = read_file_snippet(trans_file, snippet_lines)
+                        if snippet:
+                            file_data['snippet'] = snippet
+                    files.append(file_data)
+                    if len(files) >= limit:
+                        break
+
+        # Re-sort by confidence
+        files.sort(key=lambda x: x['confidence'], reverse=True)
+        files = files[:limit]
+
+        return jsonify({
+            'files': files,
+            'predictions': [f['path'] for f in files],  # Backward compat
+            'tags_used': all_tags,
+            'trigger_file': file_param if file_param else None,
+            'transition_matches': len([f for f in files if f['path'] in transition_preds]),
+            'ms': round((time.time() - start) * 1000, 2)
+        })
+
+    except Exception as e:
+        return jsonify({
+            'error': str(e),
+            'files': [],
+            'predictions': [],
+            'ms': (time.time() - start) * 1000
+        }), 500
+
+
+def read_file_snippet(file_path: str, max_lines: int = 20) -> str:
+    """
+    Read first N lines of a file for snippet prefetch.
+
+    Returns empty string if file doesn't exist or can't be read.
+    Handles common text files, skips binary files.
+    """
+    import os
+
+    # Translate host paths to container paths
+    # File paths in Redis are stored as /home/corey/aOa/... but in container they're at /codebase/...
+    CODEBASE_ROOT = os.environ.get('CODEBASE_ROOT', '/codebase')
+    HOST_PATH_PREFIX = '/home/corey/aOa'
+
+    if file_path.startswith(HOST_PATH_PREFIX):
+        file_path = file_path.replace(HOST_PATH_PREFIX, CODEBASE_ROOT, 1)
+
+    # Resolve to absolute path if needed
+    if not os.path.isabs(file_path):
+        # Try common base paths
+        for base in [CODEBASE_ROOT, os.getcwd()]:
+            full_path = os.path.join(base, file_path)
+            if os.path.exists(full_path):
+                file_path = full_path
+                break
+
+    if not os.path.exists(file_path):
+        return ''
+
+    # Skip binary files by extension
+    binary_exts = {'.pyc', '.so', '.o', '.a', '.exe', '.dll', '.bin', '.dat',
+                   '.png', '.jpg', '.jpeg', '.gif', '.ico', '.pdf', '.zip', '.tar', '.gz'}
+    _, ext = os.path.splitext(file_path)
+    if ext.lower() in binary_exts:
+        return ''
+
+    try:
+        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            lines = []
+            for i, line in enumerate(f):
+                if i >= max_lines:
+                    break
+                # Truncate very long lines
+                if len(line) > 500:
+                    line = line[:500] + '...\n'
+                lines.append(line)
+            return ''.join(lines)
+    except (IOError, OSError):
+        return ''
 
 
 # ============================================================================
@@ -1399,6 +1750,366 @@ def rank_record():
     return jsonify({
         'recorded': file_path,
         'scores': scores
+    })
+
+
+# ============================================================================
+# Transition Model API - Phase 3 Session Log Learning
+# ============================================================================
+
+# Global session parser instance
+session_parser = None
+
+try:
+    from ranking.session_parser import SessionLogParser
+    SESSION_PARSER_AVAILABLE = True
+except ImportError:
+    SESSION_PARSER_AVAILABLE = False
+
+
+@app.route('/transitions/sync', methods=['POST'])
+def sync_transitions():
+    """
+    Sync file transitions from Claude session logs to Redis.
+
+    This parses ~/.claude/projects/*/agent-*.jsonl to extract
+    file access patterns and store transition probabilities in Redis.
+
+    POST body (optional):
+    {
+        "project_path": "/home/corey/aOa"  # default
+    }
+
+    Returns:
+    {
+        "keys_written": 57,
+        "total_transitions": 94,
+        "stats": {...}
+    }
+    """
+    global session_parser
+
+    if not SESSION_PARSER_AVAILABLE:
+        return jsonify({'error': 'Session parser not available'}), 503
+
+    if not RANKING_AVAILABLE or scorer is None:
+        return jsonify({'error': 'Redis not available'}), 503
+
+    start = time.time()
+    data = request.json or {}
+    project_path = data.get('project_path', '/home/corey/aOa')
+
+    try:
+        session_parser = SessionLogParser(project_path)
+        stats = session_parser.get_stats()
+        result = session_parser.sync_to_redis(scorer.redis)
+
+        return jsonify({
+            'success': True,
+            'keys_written': result['keys_written'],
+            'total_transitions': result['total_transitions'],
+            'stats': stats,
+            'ms': round((time.time() - start) * 1000, 2)
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/transitions/predict')
+def predict_from_transitions():
+    """
+    Get predicted next files based on transition model.
+
+    Query params:
+        file: Current file being accessed (required)
+        limit: Maximum predictions to return (default: 5)
+
+    Returns:
+    {
+        "predictions": [
+            {"file": ".context/BOARD.md", "probability": 0.7},
+            {"file": "src/hooks/intent-prefetch.py", "probability": 0.1}
+        ],
+        "source_file": ".context/CURRENT.md",
+        "ms": 1.2
+    }
+    """
+    if not SESSION_PARSER_AVAILABLE:
+        return jsonify({'error': 'Session parser not available'}), 503
+
+    if not RANKING_AVAILABLE or scorer is None:
+        return jsonify({'error': 'Redis not available'}), 503
+
+    start = time.time()
+    current_file = request.args.get('file', '')
+    limit = int(request.args.get('limit', 5))
+
+    if not current_file:
+        return jsonify({'error': 'file parameter required'}), 400
+
+    try:
+        predictions = SessionLogParser.predict_next(
+            scorer.redis, current_file, limit=limit
+        )
+
+        return jsonify({
+            'predictions': [
+                {'file': f, 'probability': round(p, 4)}
+                for f, p in predictions
+            ],
+            'source_file': current_file,
+            'ms': round((time.time() - start) * 1000, 2)
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/transitions/stats')
+def transition_stats():
+    """
+    Get statistics about the transition model.
+
+    Returns session parsing stats and Redis key counts.
+    """
+    if not SESSION_PARSER_AVAILABLE:
+        return jsonify({'error': 'Session parser not available'}), 503
+
+    if not RANKING_AVAILABLE or scorer is None:
+        return jsonify({'error': 'Redis not available'}), 503
+
+    try:
+        # Count transition keys in Redis
+        transition_keys = scorer.redis.keys('aoa:transition:*')
+
+        # Get session parser stats if initialized
+        parser_stats = None
+        if session_parser:
+            parser_stats = session_parser.get_stats()
+
+        return jsonify({
+            'transition_keys': len(transition_keys),
+            'parser_stats': parser_stats
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ============================================================================
+# Context API - Natural Language Intent to Files (P3-003, P3-004)
+# ============================================================================
+
+# Stopwords for keyword extraction
+STOPWORDS = {
+    'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
+    'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could',
+    'should', 'may', 'might', 'must', 'shall', 'can', 'need', 'dare',
+    'to', 'of', 'in', 'for', 'on', 'with', 'at', 'by', 'from', 'as',
+    'into', 'through', 'during', 'before', 'after', 'above', 'below',
+    'between', 'under', 'again', 'further', 'then', 'once', 'here',
+    'there', 'when', 'where', 'why', 'how', 'all', 'each', 'few',
+    'more', 'most', 'other', 'some', 'such', 'no', 'nor', 'not',
+    'only', 'own', 'same', 'so', 'than', 'too', 'very', 'just',
+    'and', 'but', 'if', 'or', 'because', 'until', 'while', 'this',
+    'that', 'these', 'those', 'what', 'which', 'who', 'whom',
+    'i', 'you', 'he', 'she', 'it', 'we', 'they', 'me', 'him', 'her',
+    'us', 'them', 'my', 'your', 'his', 'its', 'our', 'their',
+    'fix', 'add', 'update', 'change', 'modify', 'implement', 'create',
+    'make', 'get', 'set', 'find', 'look', 'check', 'help', 'want',
+    'need', 'try', 'work', 'use', 'file', 'code', 'function', 'class'
+}
+
+# Intent patterns from intent-capture.py (tag mapping)
+INTENT_PATTERNS = [
+    (r'auth|login|session|oauth|jwt|password', ['authentication', 'security']),
+    (r'test[s]?[/_]|_test\.|\bspec[s]?\b|pytest|unittest', ['testing']),
+    (r'config|settings|\.env|\.yaml|\.yml|\.json', ['configuration']),
+    (r'api|endpoint|route|handler|controller', ['api']),
+    (r'index|search|query|grep|find', ['search']),
+    (r'model|schema|entity|db|database|migration|sql', ['data']),
+    (r'component|view|template|page|ui|style|css|html', ['frontend']),
+    (r'deploy|docker|k8s|ci|cd|pipeline|github', ['devops']),
+    (r'error|exception|catch|throw|raise|fail', ['errors']),
+    (r'log|debug|trace|print|console', ['logging']),
+    (r'cache|redis|memory|store', ['caching']),
+    (r'async|await|promise|thread|concurrent', ['async']),
+    (r'hook|plugin|extension|middleware', ['hooks']),
+    (r'doc|readme|comment|docstring', ['documentation']),
+    (r'util|helper|common|shared|lib', ['utilities']),
+    (r'ranking|score|predict|confidence', ['ranking']),
+    (r'transition|session|pattern', ['transitions']),
+]
+
+
+def extract_keywords(text: str) -> list:
+    """
+    Extract meaningful keywords from natural language intent.
+
+    Simple approach: tokenize, lowercase, filter stopwords.
+    """
+    import re
+    # Tokenize: extract words
+    tokens = re.findall(r'[a-zA-Z][a-zA-Z0-9_]*', text.lower())
+
+    # Filter: remove stopwords, keep meaningful tokens
+    keywords = [t for t in tokens if t not in STOPWORDS and len(t) > 2]
+
+    # Dedupe while preserving order
+    seen = set()
+    unique = []
+    for k in keywords:
+        if k not in seen:
+            seen.add(k)
+            unique.append(k)
+
+    return unique
+
+
+def map_keywords_to_tags(keywords: list) -> list:
+    """
+    Map extracted keywords to intent tags.
+
+    Matches keywords against INTENT_PATTERNS.
+    """
+    import re
+    matched_tags = set()
+    combined = ' '.join(keywords)
+
+    for pattern, tags in INTENT_PATTERNS:
+        if re.search(pattern, combined, re.IGNORECASE):
+            matched_tags.update(tags)
+
+    return list(matched_tags)
+
+
+@app.route('/context', methods=['POST'])
+def context_search():
+    """
+    Natural language intent -> ranked files + snippets.
+
+    POST body:
+    {
+        "intent": "fix the auth bug in login",
+        "limit": 5,
+        "snippet_lines": 10,
+        "trigger_file": ".context/CURRENT.md"  (optional)
+    }
+
+    Returns:
+    {
+        "intent": "fix the auth bug in login",
+        "keywords": ["auth", "bug", "login"],
+        "tags_matched": ["authentication", "security"],
+        "files": [
+            {
+                "path": "src/auth/login.py",
+                "confidence": 0.85,
+                "snippet": "..."
+            }
+        ],
+        "ms": 12.5
+    }
+    """
+    start = time.time()
+
+    if not RANKING_AVAILABLE or scorer is None:
+        return jsonify({'error': 'Ranking not available'}), 503
+
+    data = request.json or {}
+    intent = data.get('intent', '')
+    limit = int(data.get('limit', 5))
+    snippet_lines = int(data.get('snippet_lines', 10))
+    trigger_file = data.get('trigger_file', '')
+
+    if not intent:
+        return jsonify({'error': 'intent required'}), 400
+
+    # Step 1: Extract keywords
+    keywords = extract_keywords(intent)
+
+    if not keywords:
+        return jsonify({
+            'error': 'No keywords extracted from intent',
+            'intent': intent,
+            'keywords': []
+        }), 400
+
+    # Step 2: Map keywords to tags
+    tags_matched = map_keywords_to_tags(keywords)
+
+    # Step 3: Get ranked files (using tags as boost)
+    all_tags = list(set(keywords + tags_matched))
+    results = scorer.get_ranked_files(tags=all_tags, limit=limit * 2)
+
+    # Step 4: Get transition predictions if trigger file provided
+    transition_preds = {}
+    host_root = '/home/corey/aOa'
+    if trigger_file and SESSION_PARSER_AVAILABLE:
+        try:
+            trans_results = SessionLogParser.predict_next(scorer.redis, trigger_file, limit=10)
+            for f, prob in trans_results:
+                transition_preds[f] = prob
+                if not f.startswith('/'):
+                    transition_preds[os.path.join(host_root, f)] = prob
+        except Exception:
+            pass
+
+    # Step 5: Build response with snippets
+    files = []
+    seen_paths = set()
+
+    for r in results:
+        file_path = r['file']
+        confidence = r.get('confidence', min(r.get('score', 0.0) / 100.0, 1.0))
+
+        # Boost if in transition predictions
+        if file_path in transition_preds:
+            confidence = min(1.0, confidence + transition_preds[file_path] * 0.3)
+
+        file_data = {
+            'path': file_path,
+            'confidence': round(confidence, 3)
+        }
+
+        if snippet_lines > 0:
+            snippet = read_file_snippet(file_path, snippet_lines)
+            if snippet:
+                file_data['snippet'] = snippet
+
+        files.append(file_data)
+        seen_paths.add(file_path)
+
+        if len(files) >= limit:
+            break
+
+    # Add high-probability transition predictions
+    if transition_preds and len(files) < limit:
+        for trans_file, trans_prob in sorted(transition_preds.items(),
+                                              key=lambda x: x[1], reverse=True):
+            if trans_file not in seen_paths and trans_prob >= 0.1:
+                file_data = {
+                    'path': trans_file,
+                    'confidence': round(trans_prob * 0.8, 3),
+                    'source': 'transition'
+                }
+                if snippet_lines > 0:
+                    snippet = read_file_snippet(trans_file, snippet_lines)
+                    if snippet:
+                        file_data['snippet'] = snippet
+                files.append(file_data)
+                if len(files) >= limit:
+                    break
+
+    # Sort by confidence
+    files.sort(key=lambda x: x['confidence'], reverse=True)
+    files = files[:limit]
+
+    return jsonify({
+        'intent': intent,
+        'keywords': keywords,
+        'tags_matched': tags_matched,
+        'files': files,
+        'trigger_file': trigger_file if trigger_file else None,
+        'ms': round((time.time() - start) * 1000, 2)
     })
 
 
