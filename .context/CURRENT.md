@@ -1,50 +1,55 @@
 # aOa Context Intelligence - Beacon
 
-> **Session**: 12 | **Date**: 2025-12-27
-> **Phase**: 4 - Weight Optimization (5/6 complete)
-> **Previous Session Summary**: `.context/archive/2025-12-27-session-11-summary.md`
+> **Session**: 12 (completed) | **Date**: 2025-12-27
+> **Phase**: 5 - Go Live (Outcome Positioning)
+> **Previous Session Summary**: `.context/archive/2025-12-27-session-12-summary.md`
 
 ---
 
 ## Now
 
-Session 12 in progress. /multi endpoint fixed. Ready for benchmarking or new features.
+Session 12 complete. Go-Live phase in progress: README rewritten, imagery generator created, demo storyboards ready. Next: token calculator and landing page.
 
-## Session 12 Progress
+## Session 12 Summary
 
+### Technical (Early Session)
 - Fixed `/multi` endpoint: Added GET support (was POST-only)
-- Updated CLI to auto-detect multi-term queries (spaces → /multi)
+- Updated CLI to auto-detect multi-term queries (spaces -> /multi)
 - Consolidated ports: CLI now uses gateway (8080) for all services
-- Stopped old claudacity containers
-- Fixed session benchmark (grep path was wrong - used `/src` but langchain uses `/libs`)
-- Ran langchain benchmark: 68% token savings, 57% accuracy (17/30 tasks)
-- Implemented `aoa why <file>` - explains prediction signals (tags, recent activity)
+- Ran langchain benchmark: 68% token savings, 57% cold-repo accuracy
+- Implemented `aoa why <file>` - explains prediction signals
 
-## Session 11 Summary
+### Go-Live Phase (Later Session)
+- GL-001: README rewritten with outcome-focused user journey (Done)
+- GL-002: Demo GIF storyboards created in BOARD.md (Done - recording pending)
+- GL-004: Imagery generator with Gemini API (Done)
+  - 3 images generated: hero, convergence, status
+  - Styling: neon cyan, deep navy, attack vector aesthetic
+  - Files: `assets/generate-imagery.py`, `assets/imagery-spec.md`
+  - Output: `assets/generated/*.png`
 
-- Traffic light branding complete: grey=learning, yellow=calibrating, green=ready
-- No red signals - neutral, non-alarming progress visualization
-- Files: `.claude/hooks/aoa-status.sh`, `src/hooks/intent-summary.py`
+## Next Up
 
-## Priorities
-
-| Priority | Task | Why |
-|----------|------|-----|
-| ~~P0~~ | ~~Fix /multi endpoint~~ | ✓ Fixed - GET + POST support |
-| ~~P1~~ | ~~Run 30-task session benchmark~~ | ✓ 68% token savings, 57% accuracy |
-| ~~P1~~ | ~~`aoa why <file>` command~~ | ✓ Implemented |
+| Priority | Task | Notes |
+|----------|------|-------|
+| P0 | GL-003: Token savings calculator | HTML/JS, embed in README |
+| P1 | GL-005: Landing page copy | One-pager with outcome headlines |
+| P2 | GL-002: Record actual demo GIFs | Storyboards ready in BOARD.md |
+| P3 | Iterate on generated images | May need refinement |
 
 ## Known Issues
 
 - Cold repo accuracy (57%) - aOa needs intent history to excel
+- Generated images may need iteration for final quality
 
 ## Key Files
 
 ```
-src/index/indexer.py            # Main server, /multi endpoint needs work
-.context/benchmarks/rubrics/session-benchmark.sh  # 30-task benchmark
-.claude/hooks/aoa-status.sh     # Status line with accuracy (uncommitted)
-src/hooks/intent-summary.py     # Intent summary with accuracy (uncommitted)
+README.md                       # Rewritten with outcome-focused journey
+assets/generate-imagery.py      # Gemini image generator
+assets/imagery-spec.md          # Visual hierarchy and styling spec
+assets/generated/*.png          # Generated promotional images
+.context/BOARD.md               # Demo GIF storyboards (GL-002 section)
 ```
 
 ## Resume Commands
@@ -53,16 +58,9 @@ src/hooks/intent-summary.py     # Intent summary with accuracy (uncommitted)
 # System health
 aoa health
 
-# Multi-term search (now works!)
-aoa search "agent tool handler"
+# Generate images (requires GEMINI_API_KEY)
+cd assets && python generate-imagery.py
 
-# Run session benchmark
-bash .context/benchmarks/rubrics/session-benchmark.sh
+# Multi-term search
+aoa search "auth handler session"
 ```
-
-## Uncommitted Changes
-
-The following changes are staged but not committed:
-- `.claude/hooks/aoa-status.sh` - Traffic light branding
-- `src/hooks/intent-summary.py` - Matching branding
-- `.context/benchmarks/` - New benchmark files

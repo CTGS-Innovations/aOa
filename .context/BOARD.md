@@ -95,25 +95,25 @@ aOa: Cost stays FLAT regardless of size
 | # | Task | Expected Output | Solution Pattern | Deps | Status | C | R |
 |---|------|-----------------|------------------|------|--------|---|---|
 | GL-001 | Outcome-focused README | Headlines sell results, not specs | Rewrite existing README with outcome table | - | Done | 🟢 | - |
-| GL-002 | Demo GIFs | 4 GIFs: search, prediction, why, cost | asciinema or screen capture, convert to GIF | GL-001 | Queued | 🟢 | - |
-| GL-003 | Token savings calculator | Input sessions/month → Output $/saved | Simple HTML/JS calculator, embed in README | - | Queued | 🟢 | - |
-| GL-004 | O/Angle/Attack imagery | 6 Gemini images: hero, bigo, angle, attack, scaling, status | generate-imagery.py with GEMINI_API_KEY | - | Done | 🟢 | - |
+| GL-002 | Demo GIFs | 4 GIFs: search, prediction, why, cost | Storyboards in BOARD.md, record with asciinema | GL-001 | Storyboards Done | 🟢 | - |
+| GL-003 | Token savings calculator | Input sessions/month -> Output $/saved | Simple HTML/JS calculator, embed in README | - | Queued | 🟢 | - |
+| GL-004 | O/Angle/Attack imagery | 3 images: hero, convergence, status | generate-imagery.py with Gemini API | - | Done | 🟢 | - |
 | GL-005 | Landing page copy | One-pager with outcome headlines | Markdown or HTML, links to README | GL-001 | Queued | 🟢 | - |
 
 ### Visual Strategy
 
-**6 Images (Gemini-generated):**
+**3 Images (Gemini-generated):**
 
 | Image | Concept | Visual |
 |-------|---------|--------|
-| hero | O(1) vs O(n) | Flat cyan line vs rising red curve |
-| bigo | Big O explained | Multiple paths, one stays flat |
-| angle | Accuracy | Bullseye targeting, precision hit |
-| attack | 7 methods | Seven vectors converging on target |
-| scaling | Cost comparison | Compounding vs flat cost |
-| status | Dashboard | HUD with 7 green indicators |
+| hero | O(1) vs O(n) | Flat cyan line vs rising red curve, deep navy background |
+| convergence | Attack vectors | Multiple neon cyan vectors converging on target |
+| status | Dashboard | HUD with green indicators, attack angle aesthetic |
 
+**Styling**: Neon cyan (#00FFFF), deep navy background, attack vector aesthetic
 **Generator**: `./assets/generate-imagery.py` (requires GEMINI_API_KEY)
+**Spec**: `./assets/imagery-spec.md` (visual hierarchy and styling)
+**Output**: `./assets/generated/*.png`
 
 ### GL-002: Demo GIF Storyboards
 
@@ -327,7 +327,7 @@ All quick wins implemented. Concept validated with 96.8% hit rate on session rep
 | 3 | Transition Model | ✅ Complete | - | 6/6 tasks done, /context + CLI + caching |
 | 4 | Weight Optimization | 5/6 Complete | - | 90% Hit@5 + token savings visible |
 | B | Benchmarking | ✅ Complete | - | 100% knowledge accuracy, 68% token savings |
-| 5 | Go Live | 2/5 | - | Outcome positioning, visuals, landing page |
+| 5 | Go Live | 3/5 | - | Outcome positioning, visuals, landing page |
 
 ---
 
@@ -365,6 +365,9 @@ All quick wins implemented. Concept validated with 96.8% hit rate on session rep
 | B-002 | Langchain Knowledge Repo | 2,612 files, 34,526 symbols indexed | 2025-12-27 |
 | B-003 | aOa vs grep benchmarking | 74x faster on large repo (1.6ms vs 118ms) | 2025-12-27 |
 | B-005 | Filename Boosting | Search ranks files with query in name higher | 2025-12-27 |
+| GL-001 | Outcome-focused README | User journey storytelling, outcome headlines | 2025-12-27 |
+| GL-002 | Demo GIF Storyboards | 4 storyboards in BOARD.md (recording pending) | 2025-12-27 |
+| GL-004 | O/Angle/Attack Imagery | 3 Gemini images, neon cyan/navy styling | 2025-12-27 |
 
 ---
 
