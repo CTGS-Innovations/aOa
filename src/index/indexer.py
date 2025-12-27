@@ -693,13 +693,21 @@ def symbol_search():
         'ms': (time.time() - start) * 1000
     })
 
-@app.route('/multi', methods=['POST'])
+@app.route('/multi', methods=['GET', 'POST'])
 def multi_search():
     start = time.time()
-    data = request.json
-    terms = data.get('terms', [])
-    mode = data.get('mode', 'recent')
-    limit = int(data.get('limit', 20))
+
+    # Support both GET (query params) and POST (JSON body)
+    if request.method == 'GET':
+        q = request.args.get('q', '')
+        terms = q.split() if q else []
+        mode = request.args.get('mode', 'recent')
+        limit = int(request.args.get('limit', 20))
+    else:
+        data = request.json
+        terms = data.get('terms', [])
+        mode = data.get('mode', 'recent')
+        limit = int(data.get('limit', 20))
 
     results = manager.get_local().search_multi(terms, mode, limit)
 

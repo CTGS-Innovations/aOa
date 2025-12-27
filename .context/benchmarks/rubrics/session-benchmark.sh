@@ -180,7 +180,7 @@ simulate_grep() {
     tokens=$((tokens + 200))
 
     local files
-    files=$(grep -rl --include="*.py" "$term" "$CODEBASE_ROOT/src" 2>/dev/null | head -10)
+    files=$(grep -rl --include="*.py" "$term" "$CODEBASE_ROOT" 2>/dev/null | head -10)
 
     # Read files until we find one matching expected pattern
     local position=0
