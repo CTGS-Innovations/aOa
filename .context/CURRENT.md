@@ -1,30 +1,34 @@
 # aOa Context Intelligence - Beacon
 
-> **Session**: 09 | **Date**: 2025-12-25
+> **Session**: 10 | **Date**: 2025-12-27
 > **Phase**: 4 - Weight Optimization (5/6 complete)
-> **Previous Session Summary**: `.context/details/2025-12-25-session-08-summary.md`
+> **Previous Session Summary**: `.context/details/2025-12-27-session-09-summary.md`
 
 ---
 
 ## Now
 
-P4-006: Achieve 90% Hit@5 accuracy. Tuner infrastructure complete, awaiting data collection.
+Benchmarking complete. Knowledge repos working. Ready for next phase or continued optimization.
 
-## Session 08 Accomplishments
-
-**Full details**: See `.context/details/2025-12-25-session-08-summary.md`
+## Session 09 Accomplishments
 
 | # | Task | Output |
 |---|------|--------|
-| P4-001 | Rolling hit rate | Redis ZSET 24h window, /predict/stats, /predict/finalize |
-| P4-002 | Thompson Sampling | WeightTuner class, 8 arms, Beta distributions |
-| P4-003 | /metrics endpoint | Unified dashboard with Hit@5, trend, tuner stats |
-| P4-004 | Token cost tracking | $2,378 saved from 99.55% cache hit rate |
-| P4-005 | aoa metrics CLI | `aoa metrics` + `aoa metrics tokens` commands |
+| B-001 | LSP Comparison Benchmark | `.context/benchmarks/rubrics/lsp-compare.sh` - "Knowledge-Seeking Benchmark" |
+| B-002 | Langchain Knowledge Repo | `./repos/langchain` - 2,612 files, 34,526 symbols indexed |
+| B-003 | aOa vs grep benchmarking | 74x faster on large repo (1.6ms vs 118ms) |
 
-**New Infrastructure**:
-- Scout agent (`.claude/agents/scout.md`) - fast file prediction via `aoa context`
-- aoa-search skill (`.claude/skills/aoa-search.md`) - centralized aoa documentation
+**Key Insights**:
+- aOa value is NOT raw speed vs grep on small codebases
+- Real value: Reducing grep-read-grep-read death spiral
+- 63% token savings, 27% fewer tool calls in knowledge benchmark
+- Knowledge repos now functional for multi-repo queries
+
+**Files Changed**:
+- `.context/benchmarks/rubrics/lsp-compare.sh` - Complete rewrite as knowledge benchmark
+- `.context/benchmarks/docker/Dockerfile.lsp` - Created for pyright
+- `.context/benchmarks/docker/docker-compose.yml` - LSP container config
+- `docker-compose.yml` - Changed repos-data volume to ./repos mount
 
 ## Active
 
@@ -39,6 +43,10 @@ The infrastructure is complete. No active work required:
 2. Need ~100+ samples per arm for statistical confidence
 3. Monitor with `aoa metrics`
 
+## Known Issues
+
+- `/multi` endpoint returns 405 - needs implementation
+
 ## Key Files
 
 ```
@@ -46,6 +54,7 @@ src/ranking/scorer.py           # WeightTuner class (lines 413-591)
 src/index/indexer.py            # /tuner/*, /metrics endpoints
 src/ranking/session_parser.py   # get_token_usage() method
 /home/corey/bin/aoa             # metrics CLI commands
+./repos/langchain/              # Knowledge repo (2,612 files, 34,526 symbols)
 ```
 
 ## API Quick Reference
@@ -54,6 +63,7 @@ src/ranking/session_parser.py   # get_token_usage() method
 |----------|---------|
 | GET /metrics | Unified accuracy dashboard |
 | GET /metrics/tokens | Token usage and costs |
+| GET /repo/<name>/symbol | Repo-specific symbol search |
 | GET /tuner/weights | Thompson Sampling weights |
 | GET /tuner/best | Best performing configuration |
 | GET /tuner/stats | All arm statistics |
@@ -71,6 +81,9 @@ aoa metrics
 
 # Token economics
 aoa metrics tokens
+
+# Test langchain search
+aoa search agent  # Should hit langchain repo
 
 # Tuner arm statistics
 curl localhost:8080/tuner/stats | jq .

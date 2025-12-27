@@ -1,6 +1,6 @@
 # aOa Context Intelligence - Work Board
 
-> **Updated**: 2025-12-25 (Session 08) | **Phase**: 4 - Weight Optimization
+> **Updated**: 2025-12-27 (Session 09) | **Phase**: 4 - Weight Optimization
 > **Goal**: Transform aOa from search tool to predictive prefetch (90% accuracy)
 > **Strategic Review**: See `.context/details/strategic-board-refresh.md`
 
@@ -118,6 +118,24 @@ All quick wins implemented. Concept validated with 96.8% hit rate on session rep
 
 ---
 
+## Benchmarking & Knowledge Repos
+
+**Purpose**: Validate aOa's value proposition with real-world benchmarks on large codebases.
+
+| # | Task | Expected Output | Solution Pattern | Status | C | R |
+|---|------|-----------------|------------------|--------|---|---|
+| B-001 | LSP Comparison Benchmark | Fair comparison vs grep approach | Knowledge-seeking: tool calls to find answers | Done | 🟢 | - |
+| B-002 | Langchain Knowledge Repo | Large repo indexed for testing | ./repos mount, 2,612 files | Done | 🟢 | - |
+| B-003 | aOa vs grep benchmarking | Speed/quality comparison | 74x faster, ranked results | Done | 🟢 | - |
+| B-004 | /multi endpoint | Multi-term ranked search | Currently returns 405 | Queued | 🟡 | - |
+
+**Results**:
+- 63% token savings, 27% fewer tool calls
+- 74x faster on langchain (1.6ms vs 118ms)
+- `/repo/<name>/symbol` endpoint discovered for repo-specific queries
+
+---
+
 ## Phases Overview
 
 | Phase | Focus | Status | Blocked By | Success Metric |
@@ -126,6 +144,7 @@ All quick wins implemented. Concept validated with 96.8% hit rate on session rep
 | 2 | Prefetch + Correlation | ✅ Complete | - | 7/7 tasks done, 2/6 benchmark tests pass |
 | 3 | Transition Model | ✅ Complete | - | 6/6 tasks done, /context + CLI + caching |
 | 4 | Weight Optimization | 5/6 Complete | - | 90% Hit@5 + token savings visible |
+| B | Benchmarking | 3/4 Complete | - | Fair benchmarks, knowledge repos |
 
 ---
 
@@ -159,6 +178,9 @@ All quick wins implemented. Concept validated with 96.8% hit rate on session rep
 | P4-003 | /metrics endpoint | Unified dashboard: Hit@5, trend, tuner stats | 2025-12-25 |
 | P4-004 | Token cost tracking | get_token_usage(), $2,378 saved (99.55% cache) | 2025-12-25 |
 | P4-005 | aoa metrics CLI | `aoa metrics` + `aoa metrics tokens` | 2025-12-25 |
+| B-001 | LSP Comparison Benchmark | Knowledge-seeking benchmark, 63% token savings | 2025-12-27 |
+| B-002 | Langchain Knowledge Repo | 2,612 files, 34,526 symbols indexed | 2025-12-27 |
+| B-003 | aOa vs grep benchmarking | 74x faster on large repo (1.6ms vs 118ms) | 2025-12-27 |
 
 ---
 

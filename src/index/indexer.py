@@ -265,7 +265,7 @@ class CodebaseIndex:
             ))
 
     def search(self, query: str, mode: str = 'recent', limit: int = 20) -> List[dict]:
-        """Search for a term."""
+        """Search for a term with filename boosting."""
         results = []
 
         with self.lock:
@@ -275,6 +275,7 @@ class CodebaseIndex:
             if lower != query and lower in self.inverted_index:
                 results.extend(self.inverted_index[lower])
 
+        # Deduplicate by (file, line)
         seen = set()
         unique = []
         for loc in results:
@@ -283,8 +284,29 @@ class CodebaseIndex:
                 seen.add(key)
                 unique.append(loc)
 
+        # Score each result with filename boosting
+        query_lower = query.lower()
+        def score(loc):
+            filename = loc.file.lower().split('/')[-1]  # Just the filename
+            filepath = loc.file.lower()
+
+            # Filename boost: files named after the query rank highest
+            if query_lower in filename.replace('-', '').replace('_', ''):
+                filename_boost = 1000
+            elif query_lower in filename:
+                filename_boost = 500
+            elif query_lower in filepath:
+                filename_boost = 100
+            else:
+                filename_boost = 0
+
+            # Recency as secondary factor
+            recency = loc.mtime
+
+            return (filename_boost, recency)
+
         if mode == 'recent':
-            unique.sort(key=lambda x: x.mtime, reverse=True)
+            unique.sort(key=score, reverse=True)
         else:
             unique.sort(key=lambda x: x.file)
 

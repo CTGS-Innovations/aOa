@@ -45,9 +45,9 @@ declare -A QUESTIONS
 declare -A CORRECT_FILES
 declare -A SEARCH_TERMS
 
-QUESTIONS[1]="Where is Redis connection configured?"
-CORRECT_FILES[1]="gateway.py"
-SEARCH_TERMS[1]="redis"
+QUESTIONS[1]="Where is the Redis client?"
+CORRECT_FILES[1]="redis_client.py"
+SEARCH_TERMS[1]="RedisClient"
 
 QUESTIONS[2]="How does the indexer work?"
 CORRECT_FILES[2]="indexer.py"
@@ -55,15 +55,15 @@ SEARCH_TERMS[2]="indexer"
 
 QUESTIONS[3]="Where are intents captured?"
 CORRECT_FILES[3]="intent-capture.py"
-SEARCH_TERMS[3]="intent"
+SEARCH_TERMS[3]="capture"
 
-QUESTIONS[4]="How does prediction work?"
+QUESTIONS[4]="Where is prefetch logic?"
 CORRECT_FILES[4]="intent-prefetch.py"
-SEARCH_TERMS[4]="predict"
+SEARCH_TERMS[4]="prefetch"
 
-QUESTIONS[5]="Where is health check?"
+QUESTIONS[5]="Where is the gateway?"
 CORRECT_FILES[5]="gateway.py"
-SEARCH_TERMS[5]="health"
+SEARCH_TERMS[5]="gateway"
 
 # ============================================================
 # TRADITIONAL: grep → read → grep → read

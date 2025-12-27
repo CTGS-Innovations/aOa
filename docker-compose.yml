@@ -47,7 +47,7 @@ services:
       dockerfile: index/Dockerfile
     volumes:
       - ${CODEBASE_PATH:-.}:/codebase:ro
-      - repos-data:/repos:rw
+      - ./repos:/repos:ro
       - ./.aoa:/config:rw
       - ~/.claude:/claude-sessions:ro
     environment:
@@ -97,7 +97,7 @@ services:
       context: ./src/proxy
       dockerfile: Dockerfile
     volumes:
-      - repos-data:/repos:rw
+      - ./repos:/repos:ro
       - ./.aoa:/config:ro
     environment:
       - REPOS_ROOT=/repos
