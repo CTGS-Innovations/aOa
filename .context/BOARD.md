@@ -1,8 +1,49 @@
 # aOa Context Intelligence - Work Board
 
-> **Updated**: 2025-12-27 (Session 12) | **Phase**: 4 - Weight Optimization
-> **Goal**: Transform aOa from search tool to predictive prefetch (90% accuracy)
+> **Updated**: 2025-12-27 (Session 12) | **Phase**: 5 - Go Live
+> **Goal**: Position aOa on outcomes, not features
 > **Strategic Review**: See `.context/details/strategic-board-refresh.md`
+
+---
+
+## Phase 5 - Go Live (Outcome Positioning)
+
+**Shift**: Feature selling → Outcome/Intent selling
+
+### The Three Selling Styles
+
+| Style | Focus | Example | aOa Approach |
+|-------|-------|---------|--------------|
+| Feature | What it has | "Multi-term search, Redis caching" | ❌ Commodity trap |
+| Outcome | What you achieve | "68% fewer tokens, knows what you need" | ✅ Target this |
+| Emotional | How you feel | "Never search again, flow state coding" | 🎯 Stretch goal |
+
+### Outcome Headlines (Not Features)
+
+| ❌ Feature | ✅ Outcome |
+|-----------|-----------|
+| "Symbol search in <5ms" | "Find anything instantly" |
+| "Predictive file prefetch" | "Your next file, before you ask" |
+| "68% token savings" | "Cut your Claude costs by 2/3" |
+| "Intent tracking" | "Claude learns your patterns" |
+| "100% knowledge accuracy" | "Always the right answer, first try" |
+
+### Visual Strategy
+
+- Gemini Nano Banana imagery (AI-generated, eye-catching)
+- Before/after comparisons (grep loops vs single aoa search)
+- Token cost dashboards (real savings, real dollars)
+- Flow state visualization (less searching, more building)
+
+### Go-Live Tasks
+
+| # | Task | Output | Status |
+|---|------|--------|--------|
+| GL-001 | Write outcome-focused README | Headlines that sell results, not specs | Queued |
+| GL-002 | Create demo GIFs | Show the "aha" moments | Queued |
+| GL-003 | Token savings calculator | "You'd save $X/month" | Queued |
+| GL-004 | Banana imagery | AI-gen visuals for docs/landing | Queued |
+| GL-005 | Landing page copy | Outcome-first positioning | Queued |
 
 ---
 
@@ -151,6 +192,7 @@ All quick wins implemented. Concept validated with 96.8% hit rate on session rep
 | 3 | Transition Model | ✅ Complete | - | 6/6 tasks done, /context + CLI + caching |
 | 4 | Weight Optimization | 5/6 Complete | - | 90% Hit@5 + token savings visible |
 | B | Benchmarking | ✅ Complete | - | 100% knowledge accuracy, 68% token savings |
+| 5 | Go Live | 0/5 | - | Outcome positioning, visuals, landing page |
 
 ---
 
