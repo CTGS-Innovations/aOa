@@ -1,8 +1,9 @@
 # aOa - Work Board
 
-> **Updated**: 2026-01-06 (Session 13) | **Phase**: 5 - Go Live
+> **Updated**: 2026-01-06 (Session 13 COMPLETE) | **Phase**: 5 - Go Live
 > **Goal**: Public release with cohesive "Angle of Attack" branding
 > **Archive**: Phases 1-4 complete → `.context/archive/2026-01-06-phases-1-4-complete.md`
+> **Next Session**: 14 - Start with GL-007 deployment research
 
 ---
 
@@ -10,12 +11,27 @@
 
 | # | Task | Status | Deps | Notes |
 |---|------|--------|------|-------|
-| GL-003 | Token Calculator | Queued | - | HTML/JS, embed in README |
-| GL-005 | Landing Page | Queued | - | One-pager with outcomes |
-| GL-002 | Demo GIFs | Recording | - | Storyboards ready |
-| P4-006 | 90% Accuracy | Ongoing | - | Background tuner learning |
+| GL-007 | Deployment Strategy | Research | - | Claude plugin vs Docker Compose - START HERE |
+| GL-003 | Token Calculator | Queued | GL-007 | HTML/JS, embed in README |
+| GL-005 | Landing Page | Queued | GL-007 | One-pager with outcomes |
+| GL-002 | Demo GIFs | Queued | GL-007 | Storyboards ready |
+| P4-006 | 90% Accuracy | Ongoing | - | Background tuner learning
 
-**Next Action**: GL-003 (Token Calculator) or GL-005 (Landing Page)
+**Next Action**: GL-007 - Research deployment options
+
+### GL-007: Deployment Strategy Research
+
+**Decision Point**: How should users install/run aOa?
+
+| Option | Pros | Cons | Complexity |
+|--------|------|------|------------|
+| **Claude Code Plugin** | Native integration, easy distribution, single install | Unknown feasibility, plugin API limits | TBD |
+| **Docker Compose** | Proven, least invasive, single gateway (8080) | Requires Docker, more user setup | Low |
+
+**Research Needed**:
+1. Can Claude Code plugins run local services?
+2. Plugin distribution/installation mechanism?
+3. If plugin too complex, stay with Docker Compose (current approach works)
 
 ---
 
@@ -84,6 +100,8 @@
 | GL-001 | README Rewrite | Outcome-focused messaging | 2025-12-27 |
 | GL-004 | Imagery | 3 Gemini images, neon cyan theme | 2025-12-27 |
 | GL-006 | Messaging Unification | 5 angles branding across all touchpoints | 2026-01-06 |
+| - | CLI Gateway Routing | CLI routes through 8080, status container rebuilt | 2026-01-06 |
+| - | ~/bin/aoa Updated | Latest CLI installed to user path | 2026-01-06 |
 
 ---
 
