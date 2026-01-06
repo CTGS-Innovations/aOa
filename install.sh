@@ -187,7 +187,95 @@ fi
 echo
 
 # =============================================================================
-# 5. Verify Installation
+# 5. Install Claude Code Integration
+# =============================================================================
+
+echo "Installing Claude Code integration..."
+
+# Ensure hooks are executable
+chmod +x .claude/hooks/aoa-*.py .claude/hooks/aoa-*.sh 2>/dev/null || true
+
+# Create settings.local.json if it doesn't exist
+if [ ! -f .claude/settings.local.json ]; then
+    cat > .claude/settings.local.json << 'EOFCLAUDE'
+{
+  "permissions": {
+    "allow": [
+      "Bash(aoa search:*)",
+      "Bash(aoa health:*)",
+      "Bash(aoa help:*)",
+      "Bash(aoa metrics:*)",
+      "Bash(aoa intent:*)",
+      "Bash(aoa services:*)",
+      "Bash(aoa changes:*)",
+      "Bash(aoa why:*)",
+      "Bash(docker-compose:*)",
+      "Bash(docker ps:*)",
+      "Bash(docker logs:*)",
+      "Bash(curl:*)",
+      "Bash(ls:*)"
+    ]
+  },
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/aoa-intent-summary.py\"",
+            "timeout": 2
+          },
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/aoa-predict-context.py\"",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Read|Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/aoa-intent-prefetch.py\"",
+            "timeout": 2
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Read|Edit|Write|Bash|Grep|Glob",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/aoa-intent-capture.py\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/aoa-status-line.sh\""
+  }
+}
+EOFCLAUDE
+    echo -e "  ${GREEN}✓${NC} Created .claude/settings.local.json"
+else
+    echo -e "  ${YELLOW}!${NC} .claude/settings.local.json exists (not overwritten)"
+fi
+
+echo -e "  ${GREEN}✓${NC} Hooks configured (5 files)"
+echo -e "  ${GREEN}✓${NC} Skills configured (aoa.md)"
+echo -e "  ${YELLOW}!${NC} Restart Claude Code to activate hooks"
+echo
+
+# =============================================================================
+# 6. Verify Installation
 # =============================================================================
 
 echo "Verifying installation..."

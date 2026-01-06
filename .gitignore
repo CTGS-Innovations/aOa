@@ -3,6 +3,9 @@
 .aoa/*.sqlite
 repos/
 
+# Claude Code (user-specific settings)
+.claude/settings.local.json
+
 # Python
 __pycache__/
 *.py[cod]
