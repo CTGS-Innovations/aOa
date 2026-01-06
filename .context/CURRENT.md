@@ -1,78 +1,89 @@
 # aOa - Session Beacon
 
-> **Session**: 13 (COMPLETE) | **Date**: 2026-01-06
+> **Session**: 14 (ACTIVE) | **Date**: 2026-01-06
 > **Phase**: 5 - Go Live (Public Release)
-> **Next Session**: 14
 
 ---
 
 ## Resume Here
 
-**Task**: GL-007 Deployment Strategy Research
+**Task**: GL-008 Fresh Project Test
 
-**Decision Point**: How should users install/run aOa?
+**Goal**: Test aOa deployment on a brand new project to validate install flow
 
-| Option | Pros | Cons | Status |
-|--------|------|------|--------|
-| **Claude Code Plugin** | Native integration, single install, easy distribution | Unknown if plugins can run local services | Preferred IF feasible |
-| **Docker Compose** | Proven, working, least invasive, single gateway (8080) | Requires Docker on user machine | Fallback (already works) |
-
-**Research Questions**:
-1. Can Claude Code plugins run local services (containers, processes)?
-2. What is the plugin distribution mechanism?
-3. If plugin is too complex, stay with Docker Compose (current approach works)
-
-**Recommendation**: Start Session 14 by researching Claude Code plugin capabilities. If dead end, proceed with Docker Compose deployment docs.
+**What We're Testing**:
+1. `install.sh` runs cleanly on fresh machine/project
+2. Docker services start correctly
+3. CLI installs and works
+4. Hooks get configured
+5. Status line appears
+6. CLAUDE.md template useful
 
 ---
 
-## Session 13 Summary
+## Session 14 Summary
 
 **Completed**:
-- GL-006 Messaging Unification (all 8 phases) - "5 angles. 1 attack." branding
-- CLI now routes through gateway (8080)
-- Status container rebuilt (removed "claudacity" legacy naming)
-- ~/bin/aoa updated with latest CLI
-- Board cleaned, Phases 1-4 archived to `.context/archive/`
+- GL-007 Deployment Strategy Research
+  - Claude Code plugins = MCP servers only
+  - MCP cannot configure hooks or status line
+  - Decision: Docker Compose + Install Script (no MCP)
 
-**Blocked** (waiting on GL-007 deployment decision):
+**In Progress**:
+- GL-008 Fresh Project Test
+
+**Blocked** (waiting on GL-008):
 - GL-003 Token Calculator
 - GL-005 Landing Page
 - GL-002 Demo GIFs
 
 **Ongoing**:
-- P4-006 90% Accuracy (background tuner learning)
+- P4-006 90% Accuracy (background tuner)
+
+---
+
+## GL-007 Decision Summary
+
+| Option | Verdict | Reason |
+|--------|---------|--------|
+| MCP/Plugin | **Rejected** | Can't configure hooks, status line |
+| Docker Compose | **Accepted** | Proven, handles all requirements |
+
+**Deployment Flow**:
+```bash
+git clone https://github.com/you/aoa && cd aoa && ./install.sh
+```
 
 ---
 
 ## Active Tasks
 
-| # | Task | Status | Deps | Notes |
-|---|------|--------|------|-------|
-| GL-007 | Deployment Strategy | Research | - | Next action: research Claude plugin |
-| GL-003 | Token Calculator | Queued | GL-007 | HTML/JS, embed in README |
-| GL-005 | Landing Page | Queued | GL-007 | One-pager with outcomes |
-| GL-002 | Demo GIFs | Queued | GL-007 | Storyboards ready |
-| P4-006 | 90% Accuracy | Ongoing | - | Background tuner |
+| # | Task | Status | Notes |
+|---|------|--------|-------|
+| GL-008 | Fresh Project Test | **IN PROGRESS** | Testing deployment |
+| GL-003 | Token Calculator | Queued | After GL-008 |
+| GL-005 | Landing Page | Queued | After GL-008 |
+| GL-002 | Demo GIFs | Queued | Storyboards ready |
+| P4-006 | 90% Accuracy | Ongoing | Background tuner |
 
 ---
 
 ## Key Files
 
 ```
+install.sh                                           # Main install script
 .context/BOARD.md                                    # Master work board
-.context/details/2026-01-06-messaging-audit-master.md # Messaging audit
-.context/archive/2026-01-06-phases-1-4-complete.md   # Phase history
-~/bin/aoa                                            # Installed CLI
 cli/aoa                                              # CLI source
+hooks/                                               # Hook scripts
 ```
 
 ---
 
-## Resume Commands
+## Test Commands
 
 ```bash
-aoa health                  # Verify services running
-aoa search <term>           # Test CLI routing through 8080
-cat .context/BOARD.md       # Review GL-007 details
+# In fresh project directory:
+./install.sh                # Run full install
+aoa health                  # Verify services
+aoa search <term>           # Test symbol search
 ```

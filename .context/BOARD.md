@@ -1,9 +1,9 @@
 # aOa - Work Board
 
-> **Updated**: 2026-01-06 (Session 13 COMPLETE) | **Phase**: 5 - Go Live
+> **Updated**: 2026-01-06 (Session 14 ACTIVE) | **Phase**: 5 - Go Live
 > **Goal**: Public release with cohesive "Angle of Attack" branding
 > **Archive**: Phases 1-4 complete → `.context/archive/2026-01-06-phases-1-4-complete.md`
-> **Next Session**: 14 - Start with GL-007 deployment research
+> **Current**: GL-007 decided → testing deployment on fresh project
 
 ---
 
@@ -11,27 +11,41 @@
 
 | # | Task | Status | Deps | Notes |
 |---|------|--------|------|-------|
-| GL-007 | Deployment Strategy | Research | - | Claude plugin vs Docker Compose - START HERE |
-| GL-003 | Token Calculator | Queued | GL-007 | HTML/JS, embed in README |
-| GL-005 | Landing Page | Queued | GL-007 | One-pager with outcomes |
-| GL-002 | Demo GIFs | Queued | GL-007 | Storyboards ready |
+| GL-007 | Deployment Strategy | **DECIDED** | - | Docker Compose + Install Script |
+| GL-008 | Fresh Project Test | **IN PROGRESS** | GL-007 | Test deployment on new project |
+| GL-003 | Token Calculator | Queued | GL-008 | HTML/JS, embed in README |
+| GL-005 | Landing Page | Queued | GL-008 | One-pager with outcomes |
+| GL-002 | Demo GIFs | Queued | GL-008 | Storyboards ready |
 | P4-006 | 90% Accuracy | Ongoing | - | Background tuner learning
 
-**Next Action**: GL-007 - Research deployment options
+**Next Action**: GL-008 - Test deployment on fresh project
 
-### GL-007: Deployment Strategy Research
+### GL-007: Deployment Strategy (DECIDED)
 
-**Decision Point**: How should users install/run aOa?
+**Decision**: Docker Compose + Install Script (No MCP/Plugin)
 
-| Option | Pros | Cons | Complexity |
-|--------|------|------|------------|
-| **Claude Code Plugin** | Native integration, easy distribution, single install | Unknown feasibility, plugin API limits | TBD |
-| **Docker Compose** | Proven, least invasive, single gateway (8080) | Requires Docker, more user setup | Low |
+**Rationale** (Session 14 research):
+- Claude Code "plugins" = MCP servers only
+- MCP servers CANNOT: configure hooks, set status line, install Docker services
+- Our value requires hooks (UserPromptSubmit) and status line - not possible via MCP
+- Restart required either way (MCP add or install.sh)
+- No advantage to MCP bootstrap approach
 
-**Research Needed**:
-1. Can Claude Code plugins run local services?
-2. Plugin distribution/installation mechanism?
-3. If plugin too complex, stay with Docker Compose (current approach works)
+**Deployment Options**:
+```bash
+# Option A: Clone and run (primary)
+git clone https://github.com/you/aoa && cd aoa && ./install.sh
+
+# Option B: One-liner (future, if npm published)
+npx @aoa/setup
+```
+
+**Install Script Must Handle**:
+1. Docker Compose services (indexer, API)
+2. CLI to ~/bin
+3. Hook configuration (UserPromptSubmit)
+4. Status line setup
+5. CLAUDE.md template
 
 ---
 
