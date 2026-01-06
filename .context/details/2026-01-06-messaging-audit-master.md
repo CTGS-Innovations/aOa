@@ -232,39 +232,101 @@ The "Angle of Attack" theme is strong at the top (README, brand) but fragments a
 
 ---
 
+## Verified Line Numbers (Exact Locations)
+
+### cli/aoa (Main CLI Script)
+
+| Line | Current | Proposed | Category |
+|------|---------|----------|----------|
+| 2 | `# aoa - Bold tools for Claude Code` | `# aoa - 5 angles. 1 attack.` | Comment |
+| 883 | `Bold tools for Claude Code` | `5 angles. 1 attack.` | Help header |
+| 885 | `STATUS COMMANDS` | `ATTACK STATUS` | Section header |
+| 892 | `LOCAL SEARCH (your project - default)` | `SYMBOL ANGLE (your project - default)` | Section header |
+| 898 | `PATTERN SEARCH (agent-driven regex)` | `SIGNAL ANGLE (agent-driven regex)` | Section header |
+| 903 | `INTENT TRACKING (semantic layer)` | `INTENT ANGLE (semantic layer)` | Section header |
+| 915 | `KNOWLEDGE REPOS (isolated reference code)` | `INTEL ANGLE (isolated reference code)` | Section header |
+| 633 | `aOa Service Map` | Keep (or `aOa Attack Map`) | Services banner |
+| 665 | `CORE CAPABILITIES` | `THE FIVE ANGLES` | Services section |
+| 668 | `⚡ SEARCH` | `⚡ SYMBOL ANGLE` | Capability |
+| 671 | `🎯 INTENT` | `🎯 INTENT ANGLE` | Capability |
+| 674 | `🧠 MEMORY` | `🧠 STRIKE ANGLE` | Capability |
+| 677 | `📊 METRICS` | `📊 ATTACK STATUS` | Capability |
+| 764 | `aOa Services` | `aOa Angles` | Health header |
+
+### install.sh
+
+| Line | Current | Proposed |
+|------|---------|----------|
+| 31 | `Installation Starting...` | `Deploying 5 angles...` |
+| 158 | `Building Docker services...` | `Building attack surface...` |
+| 161 | `Starting services...` | `Deploying angles...` |
+| ~197 | `Installation Complete!` | `⚡ aOa Attack Ready!` |
+
+### hooks/aoa-status.sh
+
+| Line | Current | Proposed |
+|------|---------|----------|
+| ~71,80 | `learning...` | `calibrating...` |
+
+---
+
 ## Implementation Checklist
 
-### Phase 1: Quick Wins (5 min)
+### Phase 1: CLI Help Header & Subtitle (5 min)
 
-- [ ] `cli/aoa` line ~881: Subtitle → `5 angles. 1 attack.`
-- [ ] `install.sh` line 31: → `Deploying 5 angles...`
-- [ ] `install.sh` line 197: → `⚡ aOa Attack Ready!`
-- [ ] `aoa-status.sh` lines 71,80: `learning...` → `calibrating...`
+- [ ] `cli/aoa:2` - Comment: → `# aoa - 5 angles. 1 attack.`
+- [ ] `cli/aoa:883` - Help subtitle: → `5 angles. 1 attack.`
 
-### Phase 2: CLI Groups (15 min)
+### Phase 2: CLI Section Headers (10 min)
 
-- [ ] `cli/aoa` help headers → ATTACK STATUS, SYMBOL ANGLE, etc.
-- [ ] `cli/aoa` command descriptions per table above
-- [ ] `cli/aoa` philosophy section wording
+- [ ] `cli/aoa:885` - STATUS COMMANDS → `ATTACK STATUS`
+- [ ] `cli/aoa:892` - LOCAL SEARCH → `SYMBOL ANGLE`
+- [ ] `cli/aoa:898` - PATTERN SEARCH → `SIGNAL ANGLE`
+- [ ] `cli/aoa:903` - INTENT TRACKING → `INTENT ANGLE`
+- [ ] `cli/aoa:915` - KNOWLEDGE REPOS → `INTEL ANGLE`
 
-### Phase 3: README (10 min)
+### Phase 3: CLI Services Map (10 min)
+
+- [ ] `cli/aoa:665` - CORE CAPABILITIES → `THE FIVE ANGLES`
+- [ ] `cli/aoa:668` - ⚡ SEARCH → `⚡ SYMBOL ANGLE`
+- [ ] `cli/aoa:671` - 🎯 INTENT → `🎯 INTENT ANGLE`
+- [ ] `cli/aoa:674` - 🧠 MEMORY → `🧠 STRIKE ANGLE`
+- [ ] `cli/aoa:677` - 📊 METRICS → `📊 ATTACK STATUS`
+- [ ] `cli/aoa:764` - aOa Services → `aOa Angles`
+
+### Phase 4: Install Script (5 min)
+
+- [ ] `install.sh:31` → `Deploying 5 angles...`
+- [ ] `install.sh:158` → `Building attack surface...`
+- [ ] `install.sh:161` → `Deploying angles...`
+- [ ] `install.sh:~197` → `⚡ aOa Attack Ready!`
+
+### Phase 5: Status Line (2 min)
+
+- [ ] `hooks/aoa-status.sh` - `learning...` → `calibrating...`
+
+### Phase 6: README.md (10 min)
 
 - [ ] Section headers: "The Five Angles", "Hit Rate", "Deploy"
 - [ ] Attack groups table → Angle names
 - [ ] "Why aOa" definitions updated
 
-### Phase 4: CLAUDE.md (5 min)
+### Phase 7: CLAUDE.md (5 min)
 
 - [ ] Header: `5 Angles. 1 Attack.`
 - [ ] Rule #1: "Symbol Angle First"
 - [ ] Rule #3: "One Angle Replaces Many Tools"
 
-### Phase 5: Verification
+### Phase 8: Verification
 
-- [ ] `grep -r "attack group" .` → 0 results
 - [ ] `grep -r "Bold tools" .` → 0 results
-- [ ] `grep -r "knowledge repo" .` → only in legacy/docs
+- [ ] `grep -r "LOCAL SEARCH" cli/` → 0 results
+- [ ] `grep -r "KNOWLEDGE REPOS" cli/` → 0 results
+- [ ] `grep -rn "attack group" .` → 0 results
 - [ ] Status line shows "intents" (intentional keep)
+- [ ] Run `aoa help` - verify new headers
+- [ ] Run `aoa services` - verify angle terminology
+- [ ] Run `aoa health` - verify output
 
 ---
 
@@ -279,8 +341,17 @@ The "Angle of Attack" theme is strong at the top (README, brand) but fragments a
 STATUS COMMANDS
   status                 Show status line (context, cost, usage)
 
-LOCAL SEARCH
+LOCAL SEARCH (your project - default)
   search <term>          Find symbol/term in local codebase
+
+PATTERN SEARCH (agent-driven regex)
+  pattern '<json>'       Multi-pattern regex search
+
+INTENT TRACKING (semantic layer)
+  intent recent          Recent intent records
+
+KNOWLEDGE REPOS (isolated reference code)
+  repo list              List knowledge repos
 ```
 
 ### CLI Help (After)
@@ -292,8 +363,61 @@ LOCAL SEARCH
 ATTACK STATUS
   status                 Show attack status (hit rate, intents)
 
-SYMBOL ANGLE
+SYMBOL ANGLE (your project - default)
   search <term>          O(1) symbol lookup
+
+SIGNAL ANGLE (agent-driven regex)
+  pattern '<json>'       Multi-pattern regex search
+
+INTENT ANGLE (semantic layer)
+  intent recent          Recent intent records
+
+INTEL ANGLE (isolated reference code)
+  repo list              List intel sources
+```
+
+### Services Map (Before)
+
+```
+╔══════════════════════════════════════════════════════════════════════╗
+║                         aOa Service Map                              ║
+╠══════════════════════════════════════════════════════════════════════╣
+║  CORE CAPABILITIES                                                   ║
+╠══════════════════════════════════════════════════════════════════════╣
+║  ⚡ SEARCH         O(1) symbol lookup across codebase                ║
+║  🎯 INTENT         Track tool calls, extract behavior patterns       ║
+║  🧠 MEMORY         Dynamic working context for LLMs                  ║
+║  📊 METRICS        Prediction accuracy, token savings                ║
+╚══════════════════════════════════════════════════════════════════════╝
+```
+
+### Services Map (After)
+
+```
+╔══════════════════════════════════════════════════════════════════════╗
+║                         aOa Attack Map                               ║
+╠══════════════════════════════════════════════════════════════════════╣
+║  THE FIVE ANGLES                                                     ║
+╠══════════════════════════════════════════════════════════════════════╣
+║  ⚡ SYMBOL ANGLE   O(1) symbol lookup across codebase                ║
+║  🎯 INTENT ANGLE   Track tool calls, extract behavior patterns       ║
+║  🧠 STRIKE ANGLE   Predictive prefetch, dynamic context              ║
+║  📊 ATTACK STATUS  Hit rate, prediction accuracy, token savings      ║
+╚══════════════════════════════════════════════════════════════════════╝
+```
+
+### Health Output (Before → After)
+
+```
+# Before
+aOa Services
+  Index service: ✓ Running
+  Status service: ✓ Running
+
+# After
+aOa Angles
+  Symbol Angle (index): ✓ Running
+  Status Angle: ✓ Running
 ```
 
 ---
