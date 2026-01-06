@@ -1,14 +1,36 @@
 # aOa Context Intelligence - Beacon
 
-> **Session**: 12 (completed) | **Date**: 2025-12-27
-> **Phase**: 5 - Go Live (Outcome Positioning)
+> **Session**: 13 | **Date**: 2026-01-06
+> **Phase**: 5 - Go Live (Messaging Alignment)
 > **Previous Session Summary**: `.context/archive/2025-12-27-session-12-summary.md`
 
 ---
 
 ## Now
 
-Session 12 complete. Go-Live phase in progress: README rewritten, imagery generator created, demo storyboards ready. Next: token calculator and landing page.
+Session 13 started. Messaging audit complete. All 68 touchpoints inventoried for "Angle of Attack" theme alignment.
+
+**Master Document**: `.context/details/2026-01-06-messaging-audit-master.md`
+
+## Session 13 Focus
+
+User requested a messaging audit to ensure the "Angle of Attack" theme is cohesive across all tooling, not just the README. Audit revealed:
+
+- 44 touchpoints aligned
+- 17 partially aligned
+- 7 misaligned (CLI subtitle, install messages, etc.)
+
+**Key Terminology Change**: "Attack groups" → "Angles"
+
+| Current | Proposed |
+|---------|----------|
+| Local Search | Symbol Angle |
+| Pattern Search | Signal Angle |
+| Intent Tracking | Intent Angle |
+| Knowledge Repos | Intel Angle |
+| Prediction | Strike Angle |
+
+**Canonical Tagline**: `5 angles. 1 attack. High hit rate.`
 
 ## Session 12 Summary
 

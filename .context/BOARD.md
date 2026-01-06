@@ -1,8 +1,9 @@
 # aOa Context Intelligence - Work Board
 
-> **Updated**: 2025-12-27 (Session 12) | **Phase**: 5 - Go Live
+> **Updated**: 2026-01-06 (Session 13) | **Phase**: 5 - Go Live
 > **Goal**: Position aOa on outcomes, not features
 > **Strategic Review**: See `.context/details/strategic-board-refresh.md`
+> **Messaging Audit**: See `.context/details/2026-01-06-messaging-audit-master.md`
 
 ---
 
@@ -99,6 +100,7 @@ aOa: Cost stays FLAT regardless of size
 | GL-003 | Token savings calculator | Input sessions/month -> Output $/saved | Simple HTML/JS calculator, embed in README | - | Queued | 🟢 | - |
 | GL-004 | O/Angle/Attack imagery | 3 images: hero, convergence, status | generate-imagery.py with Gemini API | - | Done | 🟢 | - |
 | GL-005 | Landing page copy | One-pager with outcome headlines | Markdown or HTML, links to README | GL-001 | Queued | 🟢 | - |
+| GL-006 | Messaging unification | All touchpoints use "angles" terminology | Update CLI, install.sh, CLAUDE.md | - | Audit Done | 🟢 | - |
 
 ### Visual Strategy
 
