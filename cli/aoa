@@ -797,6 +797,55 @@ cmd_health() {
     fi
 }
 
+cmd_metrics() {
+    local metrics=$(curl -s --connect-timeout 2 "${INDEX_URL}/metrics" 2>/dev/null)
+
+    if [ -z "$metrics" ] || echo "$metrics" | jq -e '.error' > /dev/null 2>&1; then
+        echo -e "${RED}Metrics not available${NC}"
+        return 1
+    fi
+
+    # Parse metrics
+    local hit_pct=$(echo "$metrics" | jq -r '.rolling.hit_at_5_pct // 0')
+    local evaluated=$(echo "$metrics" | jq -r '.rolling.evaluated // 0')
+    local hits=$(echo "$metrics" | jq -r '.rolling.hits // 0')
+    local tokens_saved=$(echo "$metrics" | jq -r '.savings.tokens // 0')
+    local time_saved=$(echo "$metrics" | jq -r '.savings.time_sec // 0')
+    local trend=$(echo "$metrics" | jq -r '.trend // "unknown"')
+
+    # Format hit percentage
+    local hit_int=$(printf "%.0f" "$hit_pct")
+
+    # Traffic light
+    local color=$GREEN
+    local light="🟢"
+    if [ "$evaluated" -lt 3 ]; then
+        color=$DIM
+        light="⚪"
+    elif [ "$hit_int" -lt 80 ]; then
+        color=$YELLOW
+        light="🟡"
+    fi
+
+    echo -e "${BOLD}aOa Prediction Metrics${NC}"
+    echo ""
+    echo -e "  Accuracy:     ${color}${light} ${hit_int}%${NC} ${DIM}(${evaluated} evaluated)${NC}"
+    echo -e "  Hits:         ${hits}"
+    echo -e "  Trend:        ${trend}"
+    echo ""
+    echo -e "${BOLD}Savings${NC}"
+    echo -e "  Tokens:       ${GREEN}↓${tokens_saved}${NC}"
+    echo -e "  Time:         ${GREEN}⚡${time_saved}s${NC}"
+    echo ""
+    echo -e "${DIM}Full JSON: aoa metrics --json${NC}"
+
+    # Handle --json flag
+    if [[ "${1:-}" == "--json" ]] || [[ "${1:-}" == "-j" ]]; then
+        echo ""
+        echo "$metrics" | jq .
+    fi
+}
+
 cmd_history() {
     local limit="${1:-20}"
 
@@ -925,6 +974,7 @@ INTEL ANGLE (external reference)
 
 STRIKE ANGLE (prediction)
   health                 Check all angles
+  metrics                Prediction accuracy and savings
   memory [format]        Dynamic working context (prose|compact|structured)
   services               Visual service map with live status
 
@@ -983,6 +1033,7 @@ main() {
 
         # System
         health)     cmd_health ;;
+        metrics)    cmd_metrics ;;
         memory|mem) cmd_memory "$@" ;;
         services|svc|map) cmd_services ;;
         help|--help|-h) cmd_help ;;

@@ -93,11 +93,26 @@ The plugin activates hooks and status line on restart.
 
 ## What You Get
 
-After install, your status line shows:
+Your status line evolves as aOa learns:
 
-```
-⚡ aOa 🟢 100% │ 136 intents │ 45ms │ editing python auth
-```
+| Stage | Status Line |
+|-------|-------------|
+| Learning | `⚡ aOa ⚪ 5/30 │ 4.2ms • 12 results │ ctx:50k/200k │ Opus 4.5` |
+| Learning | `⚡ aOa ⚪ 28/30 │ 3.1ms • 8 results │ ctx:80k/200k │ Opus 4.5` |
+| Predicting | `⚡ aOa 🟡 45 │ 2.8ms • 5 results │ ctx:100k/200k │ Opus 4.5` |
+| Predicting | `⚡ aOa 🟢 120 │ 3.5ms • 6 results │ ctx:120k/200k │ Opus 4.5` |
+| Savings | `⚡ aOa 🟢 250 │ ↓12k ⚡30s saved │ ctx:80k/200k │ Opus 4.5` |
+| Long-running | `⚡ aOa 🟢 1.2k │ ↓1.8M ⚡1h32m saved │ ctx:100k/200k │ Opus 4.5` |
+
+**What the colors mean:**
+- ⚪ Gray = Learning your patterns (0-30 intents)
+- 🟡 Yellow = Predicting, improving
+- 🟢 Green = Predictions are solid
+
+**What you see:**
+- Intent count always visible (system is working)
+- Speed + results during learning phase
+- Token & time savings once predictions start hitting
 
 The more you use Claude, the smarter aOa gets. Every tool call teaches it your patterns.
 

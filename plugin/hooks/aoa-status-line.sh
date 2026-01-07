@@ -1,22 +1,27 @@
 #!/bin/bash
 # =============================================================================
-# aOa Status Line - Savings Display
+# aOa Status Line - Progressive Display
 # =============================================================================
 #
-# Format:
-#   ⚡ aOa 🟢 100% │ ↓45k ⚡2.3s saved │ ctx:51k/200k (26%) │ Opus 4.5
+# Progression:
+#   Learning:    ⚡ aOa ⚪ 5/30 │ 4.2ms • 12 results │ ctx:... │ Model
+#   Predicting:  ⚡ aOa 🟢 120 │ 3.5ms • 6 results │ ctx:... │ Model
+#   With savings: ⚡ aOa 🟢 250 │ ↓12k ⚡30s saved │ ctx:... │ Model
 #
 # =============================================================================
 
 set -uo pipefail
 
 AOA_URL="${AOA_URL:-http://localhost:8080}"
+STATUS_FILE="${AOA_STATUS_FILE:-$HOME/.aoa/status.json}"
+MIN_INTENTS=30
 
 # ANSI colors
 CYAN='\033[96m'
 GREEN='\033[92m'
 YELLOW='\033[93m'
 RED='\033[91m'
+GRAY='\033[90m'
 BOLD='\033[1m'
 DIM='\033[2m'
 RESET='\033[0m'
@@ -51,7 +56,7 @@ else
     PERCENT=0
 fi
 
-# Format tokens (e.g., 51k, 200k)
+# Format tokens (e.g., 51k, 1.2M)
 format_tokens() {
     local n=$1
     if [ "$n" -ge 1000000 ]; then
@@ -95,47 +100,80 @@ elif [ "$PERCENT" -lt 75 ]; then CTX_COLOR=$YELLOW
 else CTX_COLOR=$RED
 fi
 
-# === GET AOA METRICS ===
+# === GET INTENT COUNT ===
+INTENTS=0
+if [ -f "$STATUS_FILE" ]; then
+    INTENTS=$(jq -r '.intents // 0' "$STATUS_FILE" 2>/dev/null)
+fi
+INTENTS=${INTENTS:-0}
+
+# === GET AOA METRICS (with timing) ===
+START_TIME=$(date +%s%N)
 METRICS=$(curl -s --max-time 0.3 "${AOA_URL}/metrics" 2>/dev/null)
+END_TIME=$(date +%s%N)
+
+# Calculate response time in ms
+if [ -n "$METRICS" ]; then
+    RESPONSE_MS=$(( (END_TIME - START_TIME) / 1000000 ))
+else
+    RESPONSE_MS=0
+fi
 
 if [ -z "$METRICS" ]; then
     # aOa not running - minimal output
-    echo -e "${CYAN}${BOLD}⚡ aOa${RESET} ${DIM}│ offline │${RESET} ctx:${CTX_COLOR}${TOTAL_FMT}/${CTX_SIZE_FMT}${RESET} ${DIM}(${PERCENT}%)${RESET} ${DIM}│${RESET} ${MODEL}"
+    echo -e "${CYAN}${BOLD}⚡ aOa${RESET} ${DIM}offline${RESET} ${DIM}│${RESET} ctx:${CTX_COLOR}${TOTAL_FMT}/${CTX_SIZE_FMT}${RESET} ${DIM}(${PERCENT}%)${RESET} ${DIM}│${RESET} ${MODEL}"
     exit 0
 fi
 
 # Parse metrics
-EVAL=$(echo "$METRICS" | jq -r '.rolling.evaluated // 0')
 HIT_PCT=$(echo "$METRICS" | jq -r '.rolling.hit_at_5_pct // 0')
 HIT_PCT_INT=$(printf "%.0f" "$HIT_PCT")
-
-# Parse savings
 TOKENS_SAVED=$(echo "$METRICS" | jq -r '.savings.tokens // 0')
 TIME_SAVED_SEC=$(echo "$METRICS" | jq -r '.savings.time_sec // 0')
 TIME_SAVED_SEC_INT=$(printf "%.0f" "$TIME_SAVED_SEC")
+ROLLING_HITS=$(echo "$METRICS" | jq -r '.rolling.hits // 0')
+EVALUATED=$(echo "$METRICS" | jq -r '.rolling.evaluated // 0')
 
-# === ACCURACY DISPLAY ===
-if [ "$EVAL" -lt 3 ] 2>/dev/null; then
-    ACC_DISPLAY="${DIM}calibrating${RESET}"
+# === BUILD DISPLAY ===
+SEP="${DIM}│${RESET}"
+
+# Traffic light + intents
+if [ "$INTENTS" -lt "$MIN_INTENTS" ]; then
+    # Learning phase: gray light, X/30
+    LIGHT="${GRAY}⚪${RESET}"
+    INTENT_DISPLAY="${INTENTS}/${MIN_INTENTS}"
 elif [ "$HIT_PCT_INT" -ge 80 ] 2>/dev/null; then
-    ACC_DISPLAY="${GREEN}🟢 ${BOLD}${HIT_PCT_INT}%${RESET}"
-elif [ "$HIT_PCT_INT" -ge 50 ] 2>/dev/null; then
-    ACC_DISPLAY="${YELLOW}🟡 ${BOLD}${HIT_PCT_INT}%${RESET}"
+    # Good predictions: green light
+    LIGHT="${GREEN}🟢${RESET}"
+    INTENT_DISPLAY="${INTENTS}"
 else
-    ACC_DISPLAY="${RED}🔴 ${BOLD}${HIT_PCT_INT}%${RESET}"
+    # Predicting but room to improve: yellow light
+    LIGHT="${YELLOW}🟡${RESET}"
+    INTENT_DISPLAY="${INTENTS}"
 fi
 
-# === SAVINGS DISPLAY ===
-TOKENS_SAVED_FMT=$(format_tokens $TOKENS_SAVED)
-TIME_SAVED_FMT=$(format_time $TIME_SAVED_SEC_INT)
+# Format intents for display (1.2k for large numbers)
+if [ "$INTENTS" -ge 1000 ]; then
+    INTENT_FMT=$(format_tokens $INTENTS)
+    if [ "$INTENTS" -lt "$MIN_INTENTS" ]; then
+        INTENT_DISPLAY="${INTENT_FMT}/${MIN_INTENTS}"
+    else
+        INTENT_DISPLAY="${INTENT_FMT}"
+    fi
+fi
 
+# Middle section: savings OR speed+results
 if [ "$TOKENS_SAVED" -gt 0 ] 2>/dev/null; then
-    SAVINGS_DISPLAY="${GREEN}↓${TOKENS_SAVED_FMT}${RESET} ${GREEN}⚡${TIME_SAVED_FMT}${RESET}"
+    # Have savings - show them
+    TOKENS_SAVED_FMT=$(format_tokens $TOKENS_SAVED)
+    TIME_SAVED_FMT=$(format_time $TIME_SAVED_SEC_INT)
+    MIDDLE="${GREEN}↓${TOKENS_SAVED_FMT}${RESET} ${GREEN}⚡${TIME_SAVED_FMT}${RESET} saved"
 else
-    SAVINGS_DISPLAY="${DIM}tracking...${RESET}"
+    # No savings yet - show speed and results
+    RESULTS=${ROLLING_HITS:-0}
+    [ "$RESULTS" -eq 0 ] && RESULTS=${EVALUATED:-0}
+    MIDDLE="${GREEN}${RESPONSE_MS}ms${RESET} ${DIM}•${RESET} ${RESULTS} results"
 fi
 
 # === OUTPUT ===
-SEP="${DIM}│${RESET}"
-
-echo -e "${CYAN}${BOLD}⚡ aOa${RESET} ${ACC_DISPLAY} ${SEP} ${SAVINGS_DISPLAY} ${SEP} ctx:${CTX_COLOR}${TOTAL_FMT}/${CTX_SIZE_FMT}${RESET} ${DIM}(${PERCENT}%)${RESET} ${SEP} ${MODEL}"
+echo -e "${CYAN}${BOLD}⚡ aOa${RESET} ${LIGHT} ${INTENT_DISPLAY} ${SEP} ${MIDDLE} ${SEP} ctx:${CTX_COLOR}${TOTAL_FMT}/${CTX_SIZE_FMT}${RESET} ${DIM}(${PERCENT}%)${RESET} ${SEP} ${MODEL}"
