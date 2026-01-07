@@ -1,49 +1,50 @@
-# .aOa Directory
+# .aoa - Global aOa Configuration
 
-This directory contains aOa's configuration and persistent data.
+This folder contains global aOa settings that apply to all projects.
 
 ## Files
 
 | File | Purpose |
 |------|---------|
-| `config.json` | Main configuration |
-| `whitelist.txt` | Allowed URLs (one per line) |
-| `session.db` | SQLite session data (created on first run) |
-| `index.db` | SQLite index cache (created on first run) |
+| `config.json` | Global settings (port, thresholds, limits) |
+| `whitelist.txt` | Allowed URLs for git cloning |
 
-## Configuration
+## Configuration (config.json)
 
-Edit `config.json` to change settings:
-- `gateway_port`: Port for aOa gateway (default: 8080)
-- `max_repo_size_mb`: Max size for cloned repos (default: 500)
-- `clone_timeout`: Timeout for git operations (default: 300s)
-- `confidence_threshold`: Prefetch confidence threshold (default: 0.60)
-- `learning_phase_minimum`: Tool calls before prefetch starts (default: 50)
+```json
+{
+  "gateway_port": 8080,           // Port for aOa gateway
+  "max_repo_size_mb": 500,        // Max size for cloned repos
+  "clone_timeout": 300,           // Timeout for git operations (seconds)
+  "confidence_threshold": 0.60,   // Min confidence for prefetch predictions
+  "learning_phase_minimum": 50    // Tool calls before prefetch activates
+}
+```
 
-## Whitelist
+### Settings Explained
 
-Edit `whitelist.txt` to add allowed URLs:
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `gateway_port` | 8080 | HTTP port for the aOa gateway |
+| `max_repo_size_mb` | 500 | Maximum repo size to clone (MB) |
+| `clone_timeout` | 300 | Git clone timeout in seconds |
+| `confidence_threshold` | 0.60 | Minimum prediction confidence (0-1) |
+| `learning_phase_minimum` | 50 | Tool calls before predictions begin |
+
+## Whitelist (whitelist.txt)
+
+Add domains you want aOa to be able to clone from:
+
 ```
 github.com
 gitlab.com
 bitbucket.org
-git.company.com         # Your private git server
-docs.internal.org       # Your internal docs
+git.your-company.com
 ```
 
-Only HTTPS URLs to these hosts will be allowed.
+Only HTTPS URLs to whitelisted domains are allowed.
 
-## Data Storage
+## Per-Project Config
 
-- `session.db`: Intent history, session state (SQLite)
-- `index.db`: Cached index data (SQLite)
-- Redis: Hot-path data (in Docker volume, not here)
-
-## Resetting
-
-To reset all data:
-```bash
-rm -rf .aoa/session.db .aoa/index.db
-docker compose down -v  # Also clears Redis
-./install.sh            # Rebuild
-```
+Each project has its own `.aoa/home.json` that points back here.
+That file is created by `aoa init` and just contains paths - no settings.

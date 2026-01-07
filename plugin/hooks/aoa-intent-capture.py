@@ -17,17 +17,22 @@ from datetime import datetime
 
 AOA_URL = os.environ.get("AOA_URL", "http://localhost:8080")
 # Find AOA data directory
-# Option 1: Check for .aoa-config in project root (created by aoa init)
-# Option 2: Use env var
-# Option 3: Default to /tmp for isolated projects
+# Option 1: Check for .aoa/home.json in project root (created by aoa init)
+# Option 2: Check for legacy .aoa-config (backwards compatibility)
+# Option 3: Use env var
+# Option 4: Default to /tmp for isolated projects
 HOOK_DIR = Path(__file__).parent
 PROJECT_ROOT = HOOK_DIR.parent.parent  # .claude/hooks/ -> .claude/ -> project/
-AOA_CONFIG = PROJECT_ROOT / ".aoa-config"
+AOA_HOME_FILE = PROJECT_ROOT / ".aoa" / "home.json"
+AOA_CONFIG_LEGACY = PROJECT_ROOT / ".aoa-config"
 
-if AOA_CONFIG.exists():
-    # Read AOA_DATA location from config
-    import json
-    config = json.loads(AOA_CONFIG.read_text())
+if AOA_HOME_FILE.exists():
+    # Read AOA_DATA location from home.json
+    config = json.loads(AOA_HOME_FILE.read_text())
+    AOA_DATA = Path(config.get("data_dir", "/tmp/aoa"))
+elif AOA_CONFIG_LEGACY.exists():
+    # Legacy config file (backwards compatibility)
+    config = json.loads(AOA_CONFIG_LEGACY.read_text())
     AOA_DATA = Path(config.get("data_dir", "/tmp/aoa"))
 else:
     # Fallback: use /tmp (isolated per-project)
@@ -202,11 +207,11 @@ def check_prediction_hit(session_id: str, file_path: str):
 
 def send_intent(tool: str, files: list, tags: list, session_id: str, tool_use_id: str = None):
     """Send intent to aOa (fire-and-forget)."""
+    # Always update local status file (for status line) - even without files
+    update_status_file(tool, files, tags)
+
     if not files:
         return
-
-    # Update local status file (for status line)
-    update_status_file(tool, files, tags)
 
     # Check if this file was predicted (QW-3: Phase 2 hit/miss tracking)
     # Only check for Read operations - those are what we're trying to predict

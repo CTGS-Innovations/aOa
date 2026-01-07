@@ -121,14 +121,62 @@ cmd_init() {
     cp "$AOA_HOME/plugin/agents/"*.md "$project_root/.claude/agents/" 2>/dev/null || true
     echo -e "${GREEN}✓${NC}"
 
-    # Create .aoa-config to point hooks to data directory
-    echo -n "  Creating config............... "
-    cat > "$project_root/.aoa-config" << EOFCONFIG
+    # Create .aoa/ folder with home pointer
+    echo -n "  Creating .aoa/ config......... "
+    mkdir -p "$project_root/.aoa"
+
+    # home.json - points to global aOa install (NOT config.json - that's for global settings)
+    cat > "$project_root/.aoa/home.json" << EOFHOME
 {
   "aoa_home": "$AOA_HOME",
   "data_dir": "$AOA_DATA"
 }
-EOFCONFIG
+EOFHOME
+
+    # whitelist.txt - optional repos/URLs for this project
+    if [ ! -f "$project_root/.aoa/whitelist.txt" ]; then
+        cat > "$project_root/.aoa/whitelist.txt" << 'EOFWHITELIST'
+# aOa Whitelist - URLs allowed for this project
+# Add one domain per line (HTTPS only)
+#
+# Examples:
+# github.com/your-org/repo
+# docs.your-company.com
+# internal-git.example.com
+EOFWHITELIST
+    fi
+
+    # README.md - explains the folder
+    cat > "$project_root/.aoa/README.md" << 'EOFREADME'
+# .aoa - aOa Project Link
+
+This folder links this project to your global aOa installation.
+
+## Files
+
+| File | Purpose |
+|------|---------|
+| `home.json` | Points to global aOa install location |
+| `whitelist.txt` | Optional: extra URLs/repos for this project |
+
+## What is aOa?
+
+aOa (Angle of Attack) provides fast O(1) code search for Claude Code.
+It replaces slow Grep/Glob operations with indexed symbol lookup.
+
+## Commands
+
+```bash
+aoa search <term>    # Search this project
+aoa health           # Check services
+aoa remove           # Remove aOa from this project
+```
+
+## Global Settings
+
+To change aOa settings (port, confidence threshold, etc.),
+edit the config.json in your global aOa installation.
+EOFREADME
     echo -e "${GREEN}✓${NC}"
 
     # Copy or merge settings template
@@ -254,9 +302,10 @@ cmd_remove() {
     rm -f "$project_root/.claude/agents/aoa-"* 2>/dev/null || true
     echo -e "${GREEN}✓${NC}"
 
-    # Remove .aoa-config
-    echo -n "  Removing config............... "
-    rm -f "$project_root/.aoa-config" 2>/dev/null || true
+    # Remove .aoa/ folder (and legacy .aoa-config if present)
+    echo -n "  Removing .aoa/ config......... "
+    rm -rf "$project_root/.aoa" 2>/dev/null || true
+    rm -f "$project_root/.aoa-config" 2>/dev/null || true  # Legacy cleanup
     echo -e "${GREEN}✓${NC}"
 
     # Remove from projects.json
