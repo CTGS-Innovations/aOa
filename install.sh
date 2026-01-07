@@ -408,14 +408,18 @@ if [ -z "$SKIP_HOOKS" ]; then
 
     # Create repos directory for intel repos (gitignored)
     echo -n "  Creating repos directory...... "
-    mkdir -p "$SCRIPT_DIR/repos"
-    cat > "$SCRIPT_DIR/repos/.gitignore" << 'EOF'
+    mkdir -p "$SCRIPT_DIR/repos" 2>/dev/null
+    if [ -w "$SCRIPT_DIR/repos" ]; then
+        cat > "$SCRIPT_DIR/repos/.gitignore" << 'EOF'
 # Intel repos - indexed for search, not committed
 # These are cloned via aOa proxy for reference/learning
 *
 !.gitignore
 EOF
-    echo -e "${GREEN}✓${NC}"
+        echo -e "${GREEN}✓${NC}"
+    else
+        echo -e "${YELLOW}! Permission issue - run: sudo chown -R \$(id -u):\$(id -g) $SCRIPT_DIR/repos${NC}"
+    fi
 
     # Create settings.local.json
     echo -n "  Creating settings............. "
@@ -541,16 +545,20 @@ echo
 if [ "$USE_COMPOSE" -eq 1 ]; then
     # Stop existing services if running
     docker compose down 2>/dev/null || true
-    # Start all services
+    # Start all services with current user's UID/GID
     export CODEBASE_PATH
+    export UID=$(id -u)
+    export GID=$(id -g)
     docker compose up -d
 else
     # Stop existing container if running
     docker stop aoa 2>/dev/null || true
     docker rm aoa 2>/dev/null || true
     # Start unified container with all mounts
+    # Use current user's UID/GID so created files have correct ownership
     docker run -d \
         --name aoa \
+        --user "$(id -u):$(id -g)" \
         -p 8080:8080 \
         -v "${CODEBASE_PATH}:/codebase:ro" \
         -v "${SCRIPT_DIR}/repos:/repos:rw" \
