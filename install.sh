@@ -172,6 +172,16 @@ echo "  ║                                                               ║"
 echo "  ╚═══════════════════════════════════════════════════════════════╝"
 echo -e "${NC}"
 echo
+echo -e "  ${DIM}This installer will:${NC}"
+echo -e "  ${DIM}  1. Check prerequisites (Docker, Python)${NC}"
+echo -e "  ${DIM}  2. Set up Claude Code hooks in .claude/${NC}"
+echo -e "  ${DIM}  3. Build the aOa Docker image${NC}"
+echo -e "  ${DIM}  4. Start aOa services${NC}"
+echo -e "  ${DIM}  5. Install the aoa CLI${NC}"
+echo
+echo -n -e "  ${YELLOW}Press Enter to begin...${NC}"
+read -r
+echo
 
 # =============================================================================
 # Step 1: Prerequisites
@@ -217,6 +227,10 @@ fi
 
 echo
 echo -e "  ${GREEN}Prerequisites satisfied.${NC}"
+echo
+sleep 1
+echo -n -e "  ${DIM}Press Enter to continue...${NC}"
+read -r
 echo
 
 # =============================================================================
@@ -333,6 +347,10 @@ echo
 echo -e "  ${GREEN}Claude Code integration ready.${NC}"
 echo -e "  ${DIM}Files created in .claude/ - feel free to inspect them.${NC}"
 echo
+sleep 1
+echo -n -e "  ${DIM}Press Enter to continue...${NC}"
+read -r
+echo
 
 # =============================================================================
 # Step 3: Build Docker Image
@@ -341,13 +359,15 @@ echo
 echo -e "${CYAN}${BOLD}[3/5] Building aOa Services${NC}"
 echo -e "${DIM}─────────────────────────────────────────────────────────────────${NC}"
 echo
-echo -e "  ${DIM}Building unified Docker image with all services...${NC}"
+echo -e "  ${DIM}Building unified Docker image with all 5 angles...${NC}"
+echo -e "  ${DIM}This may take a minute on first run.${NC}"
 echo
 
 docker build -t aoa "$SCRIPT_DIR" --quiet
 echo
 echo -e "  ${GREEN}✓ Docker image built${NC}"
 echo
+sleep 1
 
 # =============================================================================
 # Step 4: Start Services
@@ -386,6 +406,7 @@ else
     echo -e "  ${YELLOW}! Services starting... (may take a moment)${NC}"
 fi
 echo
+sleep 1
 
 # =============================================================================
 # Step 5: Install CLI

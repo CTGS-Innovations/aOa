@@ -1,30 +1,25 @@
 #!/bin/bash
 # =============================================================================
-# aOa Status Line - Compact with Sparkline
+# aOa Status Line - Savings Display
 # =============================================================================
 #
 # Format:
-#   ⚡ aOa 🟢 100% │ ▂▄▆█▇███▇█ │ ctx:51k/200k (26%) │ Opus 4.5
+#   ⚡ aOa 🟢 100% │ ↓45k ⚡2.3s saved │ ctx:51k/200k (26%) │ Opus 4.5
 #
 # =============================================================================
 
 set -uo pipefail
 
 AOA_URL="${AOA_URL:-http://localhost:8080}"
-HISTORY_FILE="${AOA_HISTORY_FILE:-$HOME/.aoa/hit_history}"
 
 # ANSI colors
 CYAN='\033[96m'
 GREEN='\033[92m'
 YELLOW='\033[93m'
 RED='\033[91m'
-GRAY='\033[90m'
 BOLD='\033[1m'
 DIM='\033[2m'
 RESET='\033[0m'
-
-# Sparkline characters (8 levels)
-BARS=(▁ ▂ ▃ ▄ ▅ ▆ ▇ █)
 
 # === READ INPUT FROM CLAUDE CODE ===
 input=$(cat)
@@ -60,12 +55,34 @@ fi
 format_tokens() {
     local n=$1
     if [ "$n" -ge 1000000 ]; then
-        echo "$((n / 1000))k"
+        local m=$((n / 1000000))
+        local k=$(( (n % 1000000) / 100000 ))
+        if [ "$k" -gt 0 ]; then
+            echo "${m}.${k}M"
+        else
+            echo "${m}M"
+        fi
     elif [ "$n" -ge 1000 ]; then
         local k=$((n / 1000))
         echo "${k}k"
     else
         echo "$n"
+    fi
+}
+
+# Format time (seconds to human readable)
+format_time() {
+    local sec=$1
+    if [ "$sec" -ge 3600 ]; then
+        local h=$((sec / 3600))
+        local m=$(( (sec % 3600) / 60 ))
+        echo "${h}h${m}m"
+    elif [ "$sec" -ge 60 ]; then
+        local m=$((sec / 60))
+        local s=$((sec % 60))
+        echo "${m}m${s}s"
+    else
+        echo "${sec}s"
     fi
 }
 
@@ -92,6 +109,11 @@ EVAL=$(echo "$METRICS" | jq -r '.rolling.evaluated // 0')
 HIT_PCT=$(echo "$METRICS" | jq -r '.rolling.hit_at_5_pct // 0')
 HIT_PCT_INT=$(printf "%.0f" "$HIT_PCT")
 
+# Parse savings
+TOKENS_SAVED=$(echo "$METRICS" | jq -r '.savings.tokens // 0')
+TIME_SAVED_SEC=$(echo "$METRICS" | jq -r '.savings.time_sec // 0')
+TIME_SAVED_SEC_INT=$(printf "%.0f" "$TIME_SAVED_SEC")
+
 # === ACCURACY DISPLAY ===
 if [ "$EVAL" -lt 3 ] 2>/dev/null; then
     ACC_DISPLAY="${DIM}calibrating${RESET}"
@@ -103,79 +125,17 @@ else
     ACC_DISPLAY="${RED}🔴 ${BOLD}${HIT_PCT_INT}%${RESET}"
 fi
 
-# === SPARKLINE FROM HISTORY ===
-# History file format: one number per line (0-100 hit rate per batch)
-# We'll generate sparkline from last 12 values
+# === SAVINGS DISPLAY ===
+TOKENS_SAVED_FMT=$(format_tokens $TOKENS_SAVED)
+TIME_SAVED_FMT=$(format_time $TIME_SAVED_SEC_INT)
 
-build_sparkline() {
-    local history_data=""
-
-    # Read history file if exists
-    if [ -f "$HISTORY_FILE" ]; then
-        history_data=$(tail -12 "$HISTORY_FILE" 2>/dev/null)
-    fi
-
-    # If no history, generate from current stats
-    if [ -z "$history_data" ]; then
-        # Bootstrap with current hit rate repeated
-        local sparkline=""
-        for i in {1..10}; do
-            local bar_idx=$((HIT_PCT_INT * 7 / 100))
-            [ "$bar_idx" -gt 7 ] && bar_idx=7
-            [ "$bar_idx" -lt 0 ] && bar_idx=0
-
-            # Color based on value
-            if [ "$HIT_PCT_INT" -ge 80 ]; then
-                sparkline+="${GREEN}${BARS[$bar_idx]}${RESET}"
-            elif [ "$HIT_PCT_INT" -ge 50 ]; then
-                sparkline+="${YELLOW}${BARS[$bar_idx]}${RESET}"
-            else
-                sparkline+="${GRAY}${BARS[$bar_idx]}${RESET}"
-            fi
-        done
-        echo -e "$sparkline"
-        return
-    fi
-
-    # Build sparkline from history
-    local sparkline=""
-    while IFS= read -r val; do
-        [ -z "$val" ] && continue
-        local v=${val%.*}  # Remove decimal
-        v=${v:-0}
-
-        # Map 0-100 to bar index 0-7
-        local bar_idx=$((v * 7 / 100))
-        [ "$bar_idx" -gt 7 ] && bar_idx=7
-        [ "$bar_idx" -lt 0 ] && bar_idx=0
-
-        # Color based on value
-        if [ "$v" -ge 80 ]; then
-            sparkline+="${GREEN}${BARS[$bar_idx]}${RESET}"
-        elif [ "$v" -ge 50 ]; then
-            sparkline+="${YELLOW}${BARS[$bar_idx]}${RESET}"
-        else
-            sparkline+="${GRAY}${BARS[$bar_idx]}${RESET}"
-        fi
-    done <<< "$history_data"
-
-    echo -e "$sparkline"
-}
-
-SPARKLINE=$(build_sparkline)
-
-# === RECORD HISTORY (for sparkline evolution) ===
-# Only record if we have valid data and enough samples
-if [ "$EVAL" -ge 3 ] 2>/dev/null; then
-    mkdir -p "$(dirname "$HISTORY_FILE")" 2>/dev/null
-    echo "$HIT_PCT_INT" >> "$HISTORY_FILE"
-    # Keep only last 100 entries
-    if [ -f "$HISTORY_FILE" ]; then
-        tail -100 "$HISTORY_FILE" > "${HISTORY_FILE}.tmp" && mv "${HISTORY_FILE}.tmp" "$HISTORY_FILE"
-    fi
+if [ "$TOKENS_SAVED" -gt 0 ] 2>/dev/null; then
+    SAVINGS_DISPLAY="${GREEN}↓${TOKENS_SAVED_FMT}${RESET} ${GREEN}⚡${TIME_SAVED_FMT}${RESET}"
+else
+    SAVINGS_DISPLAY="${DIM}tracking...${RESET}"
 fi
 
 # === OUTPUT ===
 SEP="${DIM}│${RESET}"
 
-echo -e "${CYAN}${BOLD}⚡ aOa${RESET} ${ACC_DISPLAY} ${SEP} ${SPARKLINE} ${SEP} ctx:${CTX_COLOR}${TOTAL_FMT}/${CTX_SIZE_FMT}${RESET} ${DIM}(${PERCENT}%)${RESET} ${SEP} ${MODEL}"
+echo -e "${CYAN}${BOLD}⚡ aOa${RESET} ${ACC_DISPLAY} ${SEP} ${SAVINGS_DISPLAY} ${SEP} ctx:${CTX_COLOR}${TOTAL_FMT}/${CTX_SIZE_FMT}${RESET} ${DIM}(${PERCENT}%)${RESET} ${SEP} ${MODEL}"

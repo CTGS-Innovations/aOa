@@ -1475,6 +1475,13 @@ def check_prediction_hit():
                     # Record the hit (legacy counter)
                     scorer.redis.client.incr('aoa:metrics:hits')
 
+                    # Record savings (estimate: ~1500 tokens, ~50ms per hit)
+                    # Full file read avg ~2000 tokens, targeted read ~500 = 1500 saved
+                    TOKENS_SAVED_PER_HIT = 1500
+                    TIME_SAVED_MS_PER_HIT = 50
+                    scorer.redis.client.incrby('aoa:savings:tokens', TOKENS_SAVED_PER_HIT)
+                    scorer.redis.client.incrby('aoa:savings:time_ms', TIME_SAVED_MS_PER_HIT)
+
                     # Phase 4: Mark the prediction batch as a hit in rolling data
                     rolling_data_key = f"aoa:rolling:data:{pred_key_str}"
                     current_hit = scorer.redis.client.hget(rolling_data_key, 'hit')
@@ -1885,6 +1892,10 @@ def get_metrics():
         total = hits + misses
         legacy_rate = (hits / total * 100) if total > 0 else 0
 
+        # Savings stats
+        tokens_saved = int(scorer.redis.client.get('aoa:savings:tokens') or 0)
+        time_saved_ms = int(scorer.redis.client.get('aoa:savings:time_ms') or 0)
+
         # Calculate main metrics
         hit_at_5 = rolling.get('hit_at_5', 0.0)
         target = 0.90
@@ -1922,6 +1933,13 @@ def get_metrics():
                 'misses': misses,
                 'total': total,
                 'hit_rate': round(legacy_rate, 1),
+            },
+
+            # Savings (cumulative)
+            'savings': {
+                'tokens': tokens_saved,
+                'time_ms': time_saved_ms,
+                'time_sec': round(time_saved_ms / 1000, 1),
             }
         })
 
