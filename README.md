@@ -1,8 +1,8 @@
 # aOa - Angle O(1)f Attack
 
-![The O(1) Advantage](assets/generated/hero.png)
+![The O(1) Advantage](images/hero.png)
 
-> **Same cost for 100 files or 100,000.**
+> **5 angles. 1 attack.** Cut Claude Code costs by 2/3.
 
 ---
 
@@ -19,8 +19,6 @@ Claude: "Now I understand the pattern."
 ```
 
 **6,600 tokens.** Just to find what was obvious to you from the start.
-
-The cost compounds. Bigger codebases mean more searching. More searching means more tokens. More tokens means more money. The orange line keeps rising.
 
 ---
 
@@ -40,7 +38,7 @@ aOa learns what you need and has it ready. The cost stays flat—whether you hav
 
 ## The Five Angles
 
-![Five angles, one attack](assets/generated/convergence.png)
+![Five angles, one attack](images/convergence.png)
 
 aOa approaches every search from **5 angles**, converging on **1 attack**:
 
@@ -63,33 +61,45 @@ All five angles converge into **one confident answer**.
 | Tool calls | 7 | 2 | 71% |
 | Tokens | 8,500 | 1,150 | **86%** |
 | Time | 2.6s | 54ms | 98% |
-| Hit rate | ~70% | **100%** | Perfect |
 
 ---
 
-## Deploy
+## Install
+
+### 1. Add the Plugin
 
 ```bash
-git clone https://github.com/anthropics/aoa && cd aoa
-./install.sh
-aoa health
+/plugin marketplace add CTGS-Innovations/aOa
+/plugin install aoa@aoa-marketplace
 ```
 
-That's it. All five angles deploy and start calibrating immediately.
+### 2. Start Docker
+
+```bash
+# Pre-built (quick)
+docker run -d -p 8080:8080 -v $(pwd):/codebase aoa/aoa
+
+# Or build yourself (trust)
+git clone https://github.com/CTGS-Innovations/aOa
+docker build -t aoa .
+docker run -d -p 8080:8080 -v $(pwd):/codebase aoa
+```
+
+### 3. Restart Claude Code
+
+The plugin activates hooks and status line on restart.
 
 ---
 
-## The Outcome
+## What You Get
 
-![All systems optimal](assets/generated/status.png)
-
-Your status line shows what's happening:
+After install, your status line shows:
 
 ```
 ⚡ aOa 🟢 100% │ 136 intents │ 45ms │ editing python auth
 ```
 
-The more you use Claude, the smarter aOa gets. Every tool call teaches it your patterns. Every session makes predictions more accurate.
+The more you use Claude, the smarter aOa gets. Every tool call teaches it your patterns.
 
 ---
 
@@ -113,4 +123,3 @@ The more you use Claude, the smarter aOa gets. Every tool call teaches it your p
 ---
 
 **The flat line wins.**
-
