@@ -122,23 +122,49 @@ cmd_init() {
     echo -e "${GREEN}✓${NC}"
 
     # Copy or merge settings template
-    echo -n "  Creating settings............. "
+    echo -n "  Merging settings.............. "
     if [ ! -f "$project_root/.claude/settings.local.json" ]; then
         # No existing settings - copy template
         cp "$AOA_DATA/settings.template.json" "$project_root/.claude/settings.local.json"
         echo -e "${GREEN}✓${NC}"
     else
-        # Existing settings - check if statusLine needs to be added
-        if ! jq -e '.statusLine' "$project_root/.claude/settings.local.json" > /dev/null 2>&1; then
-            # statusLine missing - merge it in
-            local status_line=$(jq '.statusLine' "$AOA_DATA/settings.template.json")
-            jq --argjson sl "$status_line" '. + {statusLine: $sl}' \
-                "$project_root/.claude/settings.local.json" > "$project_root/.claude/settings.local.json.tmp"
-            mv "$project_root/.claude/settings.local.json.tmp" "$project_root/.claude/settings.local.json"
-            echo -e "${GREEN}✓${NC} ${DIM}(merged statusLine)${NC}"
-        else
-            echo -e "${YELLOW}exists${NC}"
-        fi
+        # Backup existing settings
+        cp "$project_root/.claude/settings.local.json" \
+           "$project_root/.claude/settings.local.json.pre-aoa-$(date +%Y%m%d-%H%M%S)"
+
+        # Deep merge: preserve their settings, add our hooks/statusLine/permissions
+        jq -s '
+            # Start with their settings (index 1)
+            .[1] as $existing |
+            # Our template (index 0)
+            .[0] as $template |
+
+            # Merge strategy:
+            # - permissions.allow: union (combine both)
+            # - hooks: merge by type (combine hook arrays)
+            # - statusLine: use ours if missing
+            # - everything else: preserve theirs
+
+            $existing |
+            # Add our statusLine if missing
+            (if .statusLine == null then .statusLine = $template.statusLine else . end) |
+            # Merge permissions.allow
+            (if .permissions.allow then
+                .permissions.allow += $template.permissions.allow | .permissions.allow |= unique
+             else
+                .permissions = $template.permissions
+             end) |
+            # Merge hooks (deep merge by hook type)
+            (if .hooks then
+                .hooks = ($template.hooks * .hooks)
+             else
+                .hooks = $template.hooks
+             end)
+        ' "$AOA_DATA/settings.template.json" "$project_root/.claude/settings.local.json" \
+          > "$project_root/.claude/settings.local.json.new"
+
+        mv "$project_root/.claude/settings.local.json.new" "$project_root/.claude/settings.local.json"
+        echo -e "${GREEN}✓${NC} ${DIM}(merged, backup created)${NC}"
     fi
 
     # Register project in projects.json
