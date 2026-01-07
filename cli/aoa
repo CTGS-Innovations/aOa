@@ -307,7 +307,6 @@ cmd_remove() {
     # Remove project-specific home.json (leave global config.json intact)
     echo -n "  Removing .aoa/home.json....... "
     rm -f "$project_root/.aoa/home.json" 2>/dev/null || true
-    rm -f "$project_root/.aoa-config" 2>/dev/null || true  # Legacy cleanup
     # Remove .aoa/ folder only if empty (no global config present)
     rmdir "$project_root/.aoa" 2>/dev/null || true
     echo -e "${GREEN}✓${NC}"

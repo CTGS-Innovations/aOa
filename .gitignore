@@ -5,6 +5,10 @@
 # Runtime data (indexes, repos, config)
 data/
 
+# Per-project config (created by aoa init, not distributed)
+.aoa-config
+.aoa/home.json
+
 # Our development hooks and settings
 .claude/
 
