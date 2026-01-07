@@ -234,8 +234,17 @@ cmd_remove() {
         echo -e "${DIM}not found${NC}"
     fi
 
+    # Clean up empty directories
+    echo -n "  Cleaning directories.......... "
+    rmdir "$project_root/.claude/hooks" 2>/dev/null || true
+    rmdir "$project_root/.claude/skills" 2>/dev/null || true
+    rmdir "$project_root/.claude" 2>/dev/null || true
+    echo -e "${GREEN}✓${NC}"
+
     echo
     echo -e "${GREEN}${BOLD}✓ aOa removed from ${project_name}${NC}"
+    echo
+    echo -e "${DIM}Restart Claude Code to deactivate hooks.${NC}"
     echo
 }
 

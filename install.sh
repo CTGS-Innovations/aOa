@@ -98,12 +98,17 @@ if [[ "$1" == "--uninstall" ]]; then
         FOUND_ITEMS=$((FOUND_ITEMS + 1))
     fi
 
-    # 5. Check for project hooks (list them but don't auto-remove)
+    # 5. Check for registered projects (will clean them up)
+    PROJECTS_TO_CLEAN=()
     if [ -f "$AOA_HOME/projects.json" ]; then
         PROJECT_COUNT=$(jq 'length' "$AOA_HOME/projects.json" 2>/dev/null || echo 0)
         if [ "$PROJECT_COUNT" -gt 0 ]; then
-            echo -e "  ${DIM}•${NC} Registered projects: ${BOLD}${PROJECT_COUNT}${NC}"
-            echo -e "    ${YELLOW}Note: Run 'aoa remove' in each project first to clean up hooks${NC}"
+            echo -e "  ${DIM}•${NC} Registered projects: ${BOLD}${PROJECT_COUNT}${NC} ${DIM}(will clean aOa files)${NC}"
+            # Store project paths for cleanup
+            while IFS= read -r path; do
+                PROJECTS_TO_CLEAN+=("$path")
+            done < <(jq -r '.[].path' "$AOA_HOME/projects.json" 2>/dev/null)
+            FOUND_ITEMS=$((FOUND_ITEMS + 1))
         fi
     fi
 
@@ -149,14 +154,51 @@ if [[ "$1" == "--uninstall" ]]; then
         echo -e "${GREEN}✓${NC}"
     fi
 
-    # 3. Remove global install
+    # 3. Clean up registered projects (BEFORE removing ~/.aoa/)
+    if [ ${#PROJECTS_TO_CLEAN[@]} -gt 0 ]; then
+        echo -e "  Cleaning projects:"
+        for proj_path in "${PROJECTS_TO_CLEAN[@]}"; do
+            if [ -d "$proj_path" ]; then
+                proj_name=$(basename "$proj_path")
+                echo -n "    ${proj_name}... "
+
+                # Remove aOa hooks (aoa-* prefix)
+                rm -f "$proj_path/.claude/hooks/aoa-"* 2>/dev/null
+
+                # Remove aOa skills
+                rm -f "$proj_path/.claude/skills/aoa.md" 2>/dev/null
+
+                # Check settings.local.json - only remove if unchanged from template
+                if [ -f "$proj_path/.claude/settings.local.json" ] && [ -f "$AOA_HOME/settings.template.json" ]; then
+                    TEMPLATE_HASH=$(md5sum "$AOA_HOME/settings.template.json" 2>/dev/null | cut -d' ' -f1)
+                    SETTINGS_HASH=$(md5sum "$proj_path/.claude/settings.local.json" 2>/dev/null | cut -d' ' -f1)
+
+                    if [ "$TEMPLATE_HASH" = "$SETTINGS_HASH" ]; then
+                        rm -f "$proj_path/.claude/settings.local.json"
+                        echo -e "${GREEN}✓${NC}"
+                    else
+                        echo -e "${GREEN}✓${NC} ${YELLOW}(settings.local.json has customizations - preserved)${NC}"
+                    fi
+                else
+                    echo -e "${GREEN}✓${NC}"
+                fi
+
+                # Clean up empty .claude subdirs
+                rmdir "$proj_path/.claude/hooks" 2>/dev/null || true
+                rmdir "$proj_path/.claude/skills" 2>/dev/null || true
+                rmdir "$proj_path/.claude" 2>/dev/null || true
+            fi
+        done
+    fi
+
+    # 4. Remove global install
     if [ -d "$AOA_HOME" ]; then
         echo -n "  Removing ~/.aoa/.............. "
         rm -rf "$AOA_HOME"
         echo -e "${GREEN}✓${NC}"
     fi
 
-    # 4. Remove CLI
+    # 5. Remove CLI
     if [ -f "$HOME/bin/aoa" ]; then
         echo -n "  Removing ~/bin/aoa............ "
         rm -f "$HOME/bin/aoa"
@@ -165,9 +207,6 @@ if [[ "$1" == "--uninstall" ]]; then
 
     echo
     echo -e "  ${GREEN}${BOLD}✓ aOa uninstalled${NC}"
-    echo
-    echo -e "  ${YELLOW}Note:${NC} Project hooks (.claude/hooks/aoa-*) remain in individual projects."
-    echo -e "  ${DIM}Run 'rm .claude/hooks/aoa-*' in each project if needed.${NC}"
     echo
 
     exit 0
