@@ -523,6 +523,7 @@ echo -e "${DIM}─────────────────────�
 echo
 
 # Install CLI
+PATH_UPDATED=0
 if [ -w /usr/local/bin ]; then
     cp "$SCRIPT_DIR/cli/aoa" /usr/local/bin/aoa
     chmod +x /usr/local/bin/aoa
@@ -533,10 +534,32 @@ else
     chmod +x ~/bin/aoa
     echo -e "  ${GREEN}✓ Installed to ~/bin/aoa${NC}"
 
-    # Check if ~/bin is in PATH
+    # Check if ~/bin is in PATH - if not, add it
     if [[ ":$PATH:" != *":$HOME/bin:"* ]]; then
-        echo -e "  ${YELLOW}! Add ~/bin to your PATH:${NC}"
-        echo -e "  ${DIM}  export PATH=\"\$HOME/bin:\$PATH\"${NC}"
+        # Detect shell config file
+        SHELL_CONFIG=""
+        if [ -n "$ZSH_VERSION" ] || [ -f "$HOME/.zshrc" ]; then
+            SHELL_CONFIG="$HOME/.zshrc"
+        elif [ -f "$HOME/.bashrc" ]; then
+            SHELL_CONFIG="$HOME/.bashrc"
+        elif [ -f "$HOME/.bash_profile" ]; then
+            SHELL_CONFIG="$HOME/.bash_profile"
+        fi
+
+        if [ -n "$SHELL_CONFIG" ]; then
+            # Check if we already added it
+            if ! grep -q 'export PATH="\$HOME/bin:\$PATH"' "$SHELL_CONFIG" 2>/dev/null; then
+                echo "" >> "$SHELL_CONFIG"
+                echo "# Added by aOa installer" >> "$SHELL_CONFIG"
+                echo 'export PATH="$HOME/bin:$PATH"' >> "$SHELL_CONFIG"
+                echo -e "  ${GREEN}✓ Added ~/bin to PATH in ${SHELL_CONFIG##*/}${NC}"
+                PATH_UPDATED=1
+            fi
+        else
+            echo -e "  ${YELLOW}! Could not detect shell config file${NC}"
+            echo -e "  ${DIM}  Add this to your shell config:${NC}"
+            echo -e "  ${DIM}  export PATH=\"\$HOME/bin:\$PATH\"${NC}"
+        fi
     fi
 fi
 echo
@@ -561,11 +584,19 @@ echo -e "  ${DIM}•${NC} Docker container   ${DIM}- Backend services on port 80
 echo -e "  ${DIM}•${NC} aoa CLI            ${DIM}- Command line interface${NC}"
 echo
 
-echo -e "${YELLOW}${BOLD}Next step:${NC}"
-echo -e "  ${BOLD}Restart Claude Code${NC} to activate the hooks."
+echo -e "${YELLOW}${BOLD}Next steps:${NC}"
+if [ "$PATH_UPDATED" -eq 1 ]; then
+    echo -e "  ${BOLD}1. Restart your terminal${NC} ${DIM}(or run: source ~/${SHELL_CONFIG##*/})${NC}"
+    echo -e "  ${BOLD}2. Restart Claude Code${NC} to activate the hooks"
+else
+    echo -e "  ${BOLD}Restart Claude Code${NC} to activate the hooks."
+fi
 echo
 
 echo -e "${CYAN}${BOLD}Try it:${NC}"
+if [ "$PATH_UPDATED" -eq 1 ]; then
+    echo -e "  ${DIM}After restarting terminal:${NC}"
+fi
 echo -e "  ${DIM}\$${NC} aoa health         ${DIM}# Check services${NC}"
 echo -e "  ${DIM}\$${NC} aoa search auth    ${DIM}# Search your codebase${NC}"
 echo -e "  ${DIM}\$${NC} aoa help           ${DIM}# See all commands${NC}"
