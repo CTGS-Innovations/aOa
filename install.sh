@@ -49,13 +49,16 @@ if [[ "$1" == "--uninstall" ]]; then
     # Check what exists
     FOUND_ITEMS=0
 
-    # 1. Docker container and image
-    if docker ps -a --format '{{.Names}}' 2>/dev/null | grep -q "^aoa$"; then
-        echo -e "  ${DIM}•${NC} Docker container: ${BOLD}aoa${NC}"
+    # 1. Docker compose services
+    cd "$SCRIPT_DIR"
+    AOA_CONTAINERS=$(docker compose ps -q 2>/dev/null | wc -l)
+    if [ "$AOA_CONTAINERS" -gt 0 ]; then
+        echo -e "  ${DIM}•${NC} Docker services: ${BOLD}${AOA_CONTAINERS} running${NC}"
         FOUND_ITEMS=$((FOUND_ITEMS + 1))
     fi
-    if docker images --format '{{.Repository}}' 2>/dev/null | grep -q "^aoa$"; then
-        echo -e "  ${DIM}•${NC} Docker image: ${BOLD}aoa${NC}"
+    AOA_IMAGES=$(docker images --format '{{.Repository}}' 2>/dev/null | grep -cE "^aoa[-_]" || true)
+    if [ "$AOA_IMAGES" -gt 0 ]; then
+        echo -e "  ${DIM}•${NC} Docker images: ${BOLD}${AOA_IMAGES} images${NC}"
         FOUND_ITEMS=$((FOUND_ITEMS + 1))
     fi
 
@@ -192,18 +195,17 @@ EOFTEMPLATE
     echo -e "${CYAN}${BOLD}Removing aOa...${NC}"
     echo
 
-    # 1. Stop and remove Docker container
-    if docker ps -a --format '{{.Names}}' 2>/dev/null | grep -q "^aoa$"; then
-        echo -n "  Stopping container............ "
-        docker stop aoa > /dev/null 2>&1 || true
-        docker rm aoa > /dev/null 2>&1 || true
+    # 1. Stop and remove Docker services
+    if docker compose ps -q 2>/dev/null | grep -q .; then
+        echo -n "  Stopping services............. "
+        docker compose down --volumes --remove-orphans > /dev/null 2>&1 || true
         echo -e "${GREEN}✓${NC}"
     fi
 
-    # 2. Remove Docker image
-    if docker images --format '{{.Repository}}' 2>/dev/null | grep -q "^aoa$"; then
-        echo -n "  Removing image................ "
-        docker rmi aoa > /dev/null 2>&1 || true
+    # 2. Remove Docker images (compose-built images)
+    if docker images --format '{{.Repository}}' 2>/dev/null | grep -qE "^aoa[-_]"; then
+        echo -n "  Removing images............... "
+        docker images --format '{{.Repository}}:{{.Tag}}' | grep -E "^aoa[-_]" | xargs -r docker rmi > /dev/null 2>&1 || true
         echo -e "${GREEN}✓${NC}"
     fi
 
@@ -465,13 +467,14 @@ echo
 echo -e "${CYAN}${BOLD}[3/5] Building aOa Services${NC}"
 echo -e "${DIM}─────────────────────────────────────────────────────────────────${NC}"
 echo
-echo -e "  ${DIM}Building unified Docker image with all 5 angles...${NC}"
+echo -e "  ${DIM}Building Docker images for all services...${NC}"
 echo -e "  ${DIM}This may take a minute on first run.${NC}"
 echo
 
-docker build -t aoa "$SCRIPT_DIR" --quiet
+cd "$SCRIPT_DIR"
+docker compose build --quiet
 echo
-echo -e "  ${GREEN}✓ Docker image built${NC}"
+echo -e "  ${GREEN}✓ Docker images built${NC}"
 echo
 sleep 1
 
@@ -483,20 +486,16 @@ echo -e "${CYAN}${BOLD}[4/5] Starting aOa Services${NC}"
 echo -e "${DIM}─────────────────────────────────────────────────────────────────${NC}"
 echo
 
-# Stop existing container if running
-docker stop aoa 2>/dev/null || true
-docker rm aoa 2>/dev/null || true
+# Stop existing services if running
+docker compose down 2>/dev/null || true
 
-# Start new container
-CODEBASE_PATH="${CODEBASE_PATH:-$(pwd)}"
+# Set codebase path for docker-compose
+export CODEBASE_PATH="${CODEBASE_PATH:-$(pwd)}"
 echo -e "  ${DIM}Indexing: ${CODEBASE_PATH}${NC}"
 echo
 
-docker run -d \
-    --name aoa \
-    -p 8080:8080 \
-    -v "${CODEBASE_PATH}:/codebase:ro" \
-    aoa > /dev/null
+# Start all services
+docker compose up -d
 
 echo -n "  Starting services"
 for i in {1..5}; do

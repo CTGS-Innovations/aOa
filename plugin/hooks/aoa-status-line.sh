@@ -33,6 +33,14 @@ input=$(cat)
 CURRENT_USAGE=$(echo "$input" | jq '.context_window.current_usage' 2>/dev/null)
 CONTEXT_SIZE=$(echo "$input" | jq -r '.context_window.context_window_size // 200000' 2>/dev/null)
 MODEL=$(echo "$input" | jq -r '.model.display_name // "Unknown"' 2>/dev/null)
+CWD=$(echo "$input" | jq -r '.cwd // ""' 2>/dev/null)
+
+# Format CWD (show last 2 path components)
+if [ -n "$CWD" ]; then
+    CWD_SHORT=$(echo "$CWD" | rev | cut -d'/' -f1-2 | rev)
+else
+    CWD_SHORT=""
+fi
 
 # Get tokens
 if [ "$CURRENT_USAGE" != "null" ] && [ -n "$CURRENT_USAGE" ]; then
@@ -176,4 +184,9 @@ else
 fi
 
 # === OUTPUT ===
-echo -e "${CYAN}${BOLD}⚡ aOa${RESET} ${LIGHT} ${INTENT_DISPLAY} ${SEP} ${MIDDLE} ${SEP} ctx:${CTX_COLOR}${TOTAL_FMT}/${CTX_SIZE_FMT}${RESET} ${DIM}(${PERCENT}%)${RESET} ${SEP} ${MODEL}"
+# Include CWD if available
+if [ -n "$CWD_SHORT" ]; then
+    echo -e "${CYAN}${BOLD}⚡ aOa${RESET} ${LIGHT} ${INTENT_DISPLAY} ${SEP} ${MIDDLE} ${SEP} ctx:${CTX_COLOR}${TOTAL_FMT}/${CTX_SIZE_FMT}${RESET} ${DIM}(${PERCENT}%)${RESET} ${SEP} ${MODEL} ${DIM}│${RESET} ${CYAN}${CWD_SHORT}${RESET}"
+else
+    echo -e "${CYAN}${BOLD}⚡ aOa${RESET} ${LIGHT} ${INTENT_DISPLAY} ${SEP} ${MIDDLE} ${SEP} ctx:${CTX_COLOR}${TOTAL_FMT}/${CTX_SIZE_FMT}${RESET} ${DIM}(${PERCENT}%)${RESET} ${SEP} ${MODEL}"
+fi
