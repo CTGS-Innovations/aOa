@@ -59,9 +59,15 @@ if [[ "$1" == "--uninstall" ]]; then
         FOUND_ITEMS=$((FOUND_ITEMS + 1))
     fi
 
-    # 2. .claude directory
-    if [ -d ".claude" ]; then
-        echo -e "  ${DIM}•${NC} Claude hooks: ${BOLD}.claude/${NC} ${DIM}(hooks, skills, settings)${NC}"
+    # 2. aOa files in .claude (only our files, not the whole directory)
+    AOA_HOOKS=$(ls .claude/hooks/aoa-* 2>/dev/null | wc -l)
+    AOA_SKILL=$([ -f ".claude/skills/aoa.md" ] && echo 1 || echo 0)
+    if [ "$AOA_HOOKS" -gt 0 ]; then
+        echo -e "  ${DIM}•${NC} Hooks: ${BOLD}.claude/hooks/aoa-*${NC} ${DIM}(${AOA_HOOKS} files)${NC}"
+        FOUND_ITEMS=$((FOUND_ITEMS + 1))
+    fi
+    if [ "$AOA_SKILL" -eq 1 ]; then
+        echo -e "  ${DIM}•${NC} Skill: ${BOLD}.claude/skills/aoa.md${NC}"
         FOUND_ITEMS=$((FOUND_ITEMS + 1))
     fi
 
@@ -112,10 +118,15 @@ if [[ "$1" == "--uninstall" ]]; then
         echo -e "${GREEN}✓${NC}"
     fi
 
-    # 3. Remove .claude directory
-    if [ -d ".claude" ]; then
-        echo -n "  Removing .claude/............. "
-        rm -rf .claude
+    # 3. Remove only aOa files from .claude (preserve user's other hooks)
+    if [ "$AOA_HOOKS" -gt 0 ]; then
+        echo -n "  Removing aOa hooks............ "
+        rm -f .claude/hooks/aoa-* 2>/dev/null
+        echo -e "${GREEN}✓${NC}"
+    fi
+    if [ "$AOA_SKILL" -eq 1 ]; then
+        echo -n "  Removing aOa skill............ "
+        rm -f .claude/skills/aoa.md 2>/dev/null
         echo -e "${GREEN}✓${NC}"
     fi
 
@@ -134,6 +145,14 @@ if [[ "$1" == "--uninstall" ]]; then
     echo
     echo -e "  ${GREEN}${BOLD}✓ aOa uninstalled successfully${NC}"
     echo
+
+    # Note about settings.local.json
+    if [ -f ".claude/settings.local.json" ]; then
+        echo -e "  ${DIM}Note: .claude/settings.local.json was preserved.${NC}"
+        echo -e "  ${DIM}You may want to remove aOa hook entries manually.${NC}"
+        echo
+    fi
+
     exit 0
 fi
 
