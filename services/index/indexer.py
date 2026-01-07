@@ -613,10 +613,6 @@ class IndexManager:
         with self.lock:
             return self.repos.get(name)
 
-    def get_local(self) -> CodebaseIndex:
-        """Get the local index."""
-        return self.local
-
     def shutdown(self):
         """Stop all watchers."""
         for name in list(self.observers.keys()):
@@ -797,23 +793,36 @@ def health():
 @app.route('/symbol')
 def symbol_search():
     start = time.time()
-    q = request.args.get('q', '')
-    mode = request.args.get('mode', 'recent')
-    limit = int(request.args.get('limit', 20))
-    project = request.args.get('project')  # Optional project ID
+    try:
+        q = request.args.get('q', '')
+        mode = request.args.get('mode', 'recent')
+        limit = int(request.args.get('limit', 20))
+        project = request.args.get('project')  # Optional project ID
 
-    idx = manager.get_local(project)
-    if not idx:
-        return jsonify({'error': 'No index available', 'results': [], 'ms': 0}), 404
+        idx = manager.get_local(project)
+        if not idx:
+            return jsonify({
+                'error': 'No index available',
+                'message': 'Run "aoa init" in a project to register it',
+                'results': [],
+                'ms': 0
+            }), 404
 
-    results = idx.search(q, mode, limit)
+        results = idx.search(q, mode, limit)
 
-    return jsonify({
-        'results': results,
-        'index': idx.name,
-        'project': project,
-        'ms': (time.time() - start) * 1000
-    })
+        return jsonify({
+            'results': results,
+            'index': idx.name,
+            'project': project,
+            'ms': (time.time() - start) * 1000
+        })
+    except Exception as e:
+        return jsonify({
+            'error': 'Search failed',
+            'message': str(e),
+            'results': [],
+            'ms': (time.time() - start) * 1000
+        }), 500
 
 @app.route('/multi', methods=['GET', 'POST'])
 def multi_search():
