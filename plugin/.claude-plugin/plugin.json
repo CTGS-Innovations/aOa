@@ -1,0 +1,10 @@
+{
+  "name": "aoa",
+  "description": "5 angles. 1 attack. Cut Claude Code costs by 2/3 with intelligent code search.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Corey"
+  },
+  "repository": "https://github.com/corey/aoa",
+  "keywords": ["search", "performance", "tokens", "cost-reduction"]
+}

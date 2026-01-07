@@ -1,0 +1,48 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$PLUGIN_DIR/hooks/aoa-intent-summary.py\"",
+            "timeout": 2
+          },
+          {
+            "type": "command",
+            "command": "python3 \"$PLUGIN_DIR/hooks/aoa-predict-context.py\"",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Read|Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$PLUGIN_DIR/hooks/aoa-intent-prefetch.py\"",
+            "timeout": 2
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Read|Edit|Write|Bash|Grep|Glob",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$PLUGIN_DIR/hooks/aoa-intent-capture.py\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "bash \"$PLUGIN_DIR/hooks/aoa-status-line.sh\""
+  }
+}

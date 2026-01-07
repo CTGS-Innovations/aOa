@@ -1,9 +1,9 @@
 # aOa - Work Board
 
-> **Updated**: 2026-01-06 (Session 14 ACTIVE) | **Phase**: 5 - Go Live
-> **Goal**: Public release with cohesive "Angle of Attack" branding
+> **Updated**: 2026-01-07 (Session 14 ACTIVE) | **Phase**: 5 - Go Live
+> **Goal**: Public release with clean plugin + Docker distribution
 > **Archive**: Phases 1-4 complete → `.context/archive/2026-01-06-phases-1-4-complete.md`
-> **Current**: GL-007 decided → testing deployment on fresh project
+> **Current**: GL-007 revised → Plugin + Unified Docker approach
 
 ---
 
@@ -11,99 +11,166 @@
 
 | # | Task | Status | Deps | Notes |
 |---|------|--------|------|-------|
-| GL-007 | Deployment Strategy | **DECIDED** | - | Docker Compose + Install Script |
-| GL-008 | Fresh Project Test | **IN PROGRESS** | GL-007 | Test deployment on new project |
+| GL-007 | Deployment Strategy | **REVISED** | - | Plugin + Unified Docker |
+| GL-009 | Project Restructure | **NEXT** | GL-007 | plugin/, services/, cli/ |
+| GL-010 | Unified Dockerfile | Queued | GL-009 | Single image, all services |
+| GL-011 | Plugin Manifest | Queued | GL-009 | plugin.json, marketplace.json |
+| GL-008 | Fresh System Test | Queued | GL-010, GL-011 | Test on clean machine |
 | GL-003 | Token Calculator | Queued | GL-008 | HTML/JS, embed in README |
 | GL-005 | Landing Page | Queued | GL-008 | One-pager with outcomes |
 | GL-002 | Demo GIFs | Queued | GL-008 | Storyboards ready |
 | P4-006 | 90% Accuracy | Ongoing | - | Background tuner learning
 
-**Next Action**: GL-008 - Test deployment on fresh project
-
-### GL-007: Deployment Strategy (DECIDED)
-
-**Decision**: Docker Compose + Install Script (No MCP/Plugin)
-
-**Rationale** (Session 14 research):
-- Claude Code "plugins" = MCP servers only
-- MCP servers CANNOT: configure hooks, set status line, install Docker services
-- Our value requires hooks (UserPromptSubmit) and status line - not possible via MCP
-- Restart required either way (MCP add or install.sh)
-- No advantage to MCP bootstrap approach
-
-**Deployment Options**:
-```bash
-# Option A: Clone and run (primary)
-git clone https://github.com/you/aoa && cd aoa && ./install.sh
-
-# Option B: One-liner (future, if npm published)
-npx @aoa/setup
-```
-
-**Install Script Must Handle**:
-1. Docker Compose services (indexer, API)
-2. CLI to ~/bin
-3. Hook configuration (UserPromptSubmit)
-4. Status line setup
-5. CLAUDE.md template
+**Next Action**: GL-009 - Restructure project into clean layout
 
 ---
 
-## GL-006: Messaging Unification
+## GL-007: Deployment Strategy (REVISED)
 
-**Master Document**: `.context/details/2026-01-06-messaging-audit-master.md`
+**Previous Decision**: Docker Compose + install.sh (git clone approach)
+**Problem**: Clobbers user's project, brings entire repo
 
-### The Five Angles
+**New Decision**: Plugin Marketplace + Unified Docker Image
 
-| Current | Angle | CLI Command |
-|---------|-------|-------------|
-| LOCAL SEARCH | **Symbol Angle** | `aoa search` |
-| PATTERN SEARCH | **Signal Angle** | `aoa multi`, `aoa pattern` |
-| INTENT TRACKING | **Intent Angle** | `aoa intent` |
-| KNOWLEDGE REPOS | **Intel Angle** | `aoa repo` |
-| Prediction/Memory | **Strike Angle** | `aoa context` |
+### Distribution Model
 
-**Tagline**: `5 angles. 1 attack.`
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     User Installation                        │
+├─────────────────────────────────────────────────────────────┤
+│  1. /plugin marketplace add corey/aoa                       │
+│  2. /plugin install aoa@aoa-marketplace                     │
+│  3. /aoa:setup  (or: docker run aoa/aoa)                   │
+└─────────────────────────────────────────────────────────────┘
+```
 
-### Implementation Checklist
+### What Gets Distributed
 
-#### Phase 1: CLI Header (5 min) ✅
-- [x] `cli/aoa:2` → `# aoa - 5 angles. 1 attack.`
-- [x] `cli/aoa:883` → `5 angles. 1 attack.`
+| Component | Via | Contains |
+|-----------|-----|----------|
+| **Plugin** | Marketplace | hooks, skills, agents, commands |
+| **Docker** | Docker Hub | all backend services, CLI |
 
-#### Phase 2: CLI Section Headers (10 min) ✅
-- [x] `cli/aoa:885` STATUS COMMANDS → `ATTACK STATUS`
-- [x] `cli/aoa:892` LOCAL SEARCH → `SYMBOL ANGLE`
-- [x] `cli/aoa:898` PATTERN SEARCH → `SIGNAL ANGLE`
-- [x] `cli/aoa:903` INTENT TRACKING → `INTENT ANGLE`
-- [x] `cli/aoa:915` KNOWLEDGE REPOS → `INTEL ANGLE`
+### User Flow
 
-#### Phase 3: Services Map (10 min) ✅
-- [x] `cli/aoa:665` CORE CAPABILITIES → `THE FIVE ANGLES`
-- [x] `cli/aoa:668-677` Update capability names
-- [x] `cli/aoa:764` aOa Services → `aOa Angles`
+```bash
+# Claude Code plugin (hooks, skills, agents)
+/plugin marketplace add corey/aoa
+/plugin install aoa@aoa-marketplace
 
-#### Phase 4: Install Script (5 min) ✅
-- [x] `install.sh:31` → `Deploying 5 angles...`
-- [x] `install.sh:161` → `Deploying angles...`
-- [x] `install.sh:~197` → `⚡ aOa Attack Ready!`
+# Backend services (one command)
+docker run -d -p 8080:8080 -v $(pwd):/codebase aoa/aoa
 
-#### Phase 5: Status Line (2 min) ✅
-- [x] `hooks/aoa-status.sh` `learning...` → `calibrating...`
-- [x] `intent-summary.py` `learning...` → `calibrating...`
+# Or via plugin command
+/aoa:setup
+```
 
-#### Phase 6: README (10 min) ✅
-- [x] Section headers: "The Five Angles", "Hit Rate", "Deploy"
-- [x] Update angle terminology in body
+### Trust Options
 
-#### Phase 7: CLAUDE.md (5 min) ✅
-- [x] Header → `5 Angles. 1 Attack.`
-- [x] Rule names updated
+```bash
+# Pre-built (convenience)
+docker pull aoa/aoa
 
-#### Phase 8: Verification ✅
-- [x] `grep -r "Bold tools" .` → 0 results
-- [x] `aoa help` shows new headers
-- [x] `aoa services` shows angle terminology
+# Build yourself (trust)
+git clone https://github.com/corey/aoa
+docker build -t aoa .
+```
+
+---
+
+## GL-009: Project Restructure
+
+**Goal**: Clean separation of concerns
+
+### Current (Messy)
+```
+├── .claude/          # Mixed with project
+├── src/              # Services scattered
+├── cli/
+├── scripts/
+└── (everything in root)
+```
+
+### Target (Clean)
+```
+aoa/
+├── plugin/                      # Claude Code Plugin
+│   ├── .claude-plugin/
+│   │   ├── plugin.json
+│   │   └── marketplace.json
+│   ├── commands/
+│   │   ├── setup.md
+│   │   └── health.md
+│   ├── agents/
+│   ├── skills/
+│   └── hooks/
+│
+├── services/                    # Backend (Docker)
+│   ├── gateway/
+│   ├── index/
+│   ├── status/
+│   └── ranking/
+│
+├── cli/                         # CLI tool
+│   └── aoa
+│
+├── Dockerfile                   # Unified single image
+├── docker-compose.yml           # Dev only
+└── README.md
+```
+
+### Benefits
+- Plugin is self-contained in `plugin/`
+- Services grouped for Docker
+- No confusion between hook types
+- Marketplace points to `plugin/` subdirectory
+
+---
+
+## GL-010: Unified Dockerfile
+
+**Goal**: Single Docker image with all services
+
+```dockerfile
+# All services in one image
+# - Gateway
+# - Index
+# - Status
+# - Redis (embedded)
+# Process manager: supervisord or s6-overlay
+```
+
+**Distribution**:
+- Docker Hub: `aoa/aoa:latest`
+- GitHub Actions auto-publish on release
+
+---
+
+## GL-011: Plugin Manifest
+
+**plugin.json**:
+```json
+{
+  "name": "aoa",
+  "description": "5 angles. 1 attack. Cut Claude Code costs by 2/3.",
+  "version": "1.0.0",
+  "author": { "name": "Corey" }
+}
+```
+
+**marketplace.json**:
+```json
+{
+  "name": "aoa-marketplace",
+  "owner": { "name": "Corey" },
+  "plugins": [{
+    "name": "aoa",
+    "source": ".",
+    "description": "Angle of Attack - fast code search",
+    "version": "1.0.0"
+  }]
+}
+```
 
 ---
 
@@ -113,9 +180,9 @@ npx @aoa/setup
 |---|------|--------|------|
 | GL-001 | README Rewrite | Outcome-focused messaging | 2025-12-27 |
 | GL-004 | Imagery | 3 Gemini images, neon cyan theme | 2025-12-27 |
-| GL-006 | Messaging Unification | 5 angles branding across all touchpoints | 2026-01-06 |
-| - | CLI Gateway Routing | CLI routes through 8080, status container rebuilt | 2026-01-06 |
-| - | ~/bin/aoa Updated | Latest CLI installed to user path | 2026-01-06 |
+| GL-006 | Messaging Unification | 5 angles branding | 2026-01-06 |
+| - | Hook Rename | aoa-*.py naming convention | 2026-01-06 |
+| - | Skill Rename | aoa.md (full reference) | 2026-01-06 |
 
 ---
 
@@ -127,17 +194,6 @@ npx @aoa/setup
 | Speed vs grep | 74x faster |
 | Hit Rate | ~70% (target: 90%) |
 | Benchmark Accuracy | 100% top-1 |
-
----
-
-## Files Reference
-
-```
-.context/details/2026-01-06-messaging-audit-master.md   # Full audit + line numbers
-.context/archive/2026-01-06-phases-1-4-complete.md      # Historical phases
-assets/generate-imagery.py                               # Gemini image generator
-assets/generated/*.png                                   # Generated images
-```
 
 ---
 

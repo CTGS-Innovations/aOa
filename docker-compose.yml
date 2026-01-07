@@ -21,7 +21,7 @@ services:
   # ===========================================================================
   gateway:
     build:
-      context: ./src/gateway
+      context: ./services/gateway
       dockerfile: Dockerfile
     ports:
       - "8080:8080"
@@ -43,7 +43,7 @@ services:
   # ===========================================================================
   index:
     build:
-      context: ./src
+      context: ./services
       dockerfile: index/Dockerfile
     volumes:
       - ${CODEBASE_PATH:-.}:/codebase:ro
@@ -67,7 +67,7 @@ services:
   # ===========================================================================
   status:
     build:
-      context: ./src/status
+      context: ./services/status
       dockerfile: Dockerfile
     environment:
       - REDIS_URL=redis://redis:6379/0
@@ -94,7 +94,7 @@ services:
   # ===========================================================================
   proxy:
     build:
-      context: ./src/proxy
+      context: ./services/proxy
       dockerfile: Dockerfile
     volumes:
       - ./repos:/repos:ro

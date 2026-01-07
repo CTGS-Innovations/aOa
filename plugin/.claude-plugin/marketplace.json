@@ -1,0 +1,18 @@
+{
+  "name": "aoa-marketplace",
+  "owner": {
+    "name": "Corey",
+    "email": "corey@example.com"
+  },
+  "metadata": {
+    "description": "Angle of Attack - intelligent code search for Claude Code"
+  },
+  "plugins": [
+    {
+      "name": "aoa",
+      "source": ".",
+      "description": "5 angles. 1 attack. Cut Claude Code costs by 2/3.",
+      "version": "1.0.0"
+    }
+  ]
+}

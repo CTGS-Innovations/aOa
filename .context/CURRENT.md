@@ -1,58 +1,86 @@
 # aOa - Session Beacon
 
-> **Session**: 14 (ACTIVE) | **Date**: 2026-01-06
+> **Session**: 14 (ACTIVE) | **Date**: 2026-01-07
 > **Phase**: 5 - Go Live (Public Release)
 
 ---
 
 ## Resume Here
 
-**Task**: GL-008 Fresh Project Test
+**Task**: GL-009 Project Restructure
 
-**Goal**: Test aOa deployment on a brand new project to validate install flow
+**Goal**: Clean separation → plugin/, services/, cli/
 
-**What We're Testing**:
-1. `install.sh` runs cleanly on fresh machine/project
-2. Docker services start correctly
-3. CLI installs and works
-4. Hooks get configured
-5. Status line appears
-6. CLAUDE.md template useful
+**Decision Made**: Plugin Marketplace + Unified Docker (not git clone)
 
 ---
 
 ## Session 14 Summary
 
 **Completed**:
-- GL-007 Deployment Strategy Research
-  - Claude Code plugins = MCP servers only
-  - MCP cannot configure hooks or status line
-  - Decision: Docker Compose + Install Script (no MCP)
+- GL-007 Deployment Strategy Research (REVISED)
+  - Discovered Claude Code has formal plugin system
+  - Plugin = marketplace distribution (no git clone needed)
+  - MCP not needed for hooks (plugin handles it)
+  - Single Docker image simplifies backend
+- Hook rename (aoa-*.py convention)
+- Skill rename (aoa.md)
 
-**In Progress**:
-- GL-008 Fresh Project Test
+**New Plan**:
+```
+User Installation:
+1. /plugin marketplace add corey/aoa
+2. /plugin install aoa@aoa-marketplace
+3. docker run aoa/aoa (or /aoa:setup)
+```
 
-**Blocked** (waiting on GL-008):
-- GL-003 Token Calculator
-- GL-005 Landing Page
-- GL-002 Demo GIFs
-
-**Ongoing**:
-- P4-006 90% Accuracy (background tuner)
+**Next Tasks**:
+- GL-009: Restructure project
+- GL-010: Unified Dockerfile
+- GL-011: Plugin manifest
+- GL-008: Test on fresh system
 
 ---
 
-## GL-007 Decision Summary
+## GL-007 Evolution
 
-| Option | Verdict | Reason |
-|--------|---------|--------|
-| MCP/Plugin | **Rejected** | Can't configure hooks, status line |
-| Docker Compose | **Accepted** | Proven, handles all requirements |
+| Stage | Approach | Problem |
+|-------|----------|---------|
+| Initial | Docker Compose + install.sh | Clobbers project |
+| MCP idea | MCP server bootstrap | Can't configure hooks |
+| **Final** | Plugin + Docker Hub | Clean, no clobber |
 
-**Deployment Flow**:
-```bash
-git clone https://github.com/you/aoa && cd aoa && ./install.sh
+---
+
+## Target Structure
+
 ```
+aoa/
+├── plugin/           # Claude Code Plugin (marketplace)
+│   ├── .claude-plugin/
+│   ├── commands/
+│   ├── agents/
+│   ├── skills/
+│   └── hooks/
+├── services/         # Backend (Docker image)
+│   ├── gateway/
+│   ├── index/
+│   ├── status/
+│   └── ranking/
+├── cli/              # CLI tool
+├── Dockerfile        # Unified image
+└── README.md
+```
+
+---
+
+## Test System Ready
+
+Fresh machine available for testing:
+- Option A: Develop here, test there
+- Option B: Migrate source of truth to new system
+
+**Recommendation**: Develop here (keep history), test on fresh system
 
 ---
 
@@ -60,30 +88,18 @@ git clone https://github.com/you/aoa && cd aoa && ./install.sh
 
 | # | Task | Status | Notes |
 |---|------|--------|-------|
-| GL-008 | Fresh Project Test | **IN PROGRESS** | Testing deployment |
-| GL-003 | Token Calculator | Queued | After GL-008 |
-| GL-005 | Landing Page | Queued | After GL-008 |
-| GL-002 | Demo GIFs | Queued | Storyboards ready |
-| P4-006 | 90% Accuracy | Ongoing | Background tuner |
+| GL-009 | Project Restructure | **NEXT** | plugin/, services/, cli/ |
+| GL-010 | Unified Dockerfile | Queued | Single image |
+| GL-011 | Plugin Manifest | Queued | plugin.json |
+| GL-008 | Fresh System Test | Queued | Test installation |
 
 ---
 
 ## Key Files
 
 ```
-install.sh                                           # Main install script
-.context/BOARD.md                                    # Master work board
-cli/aoa                                              # CLI source
-hooks/                                               # Hook scripts
-```
-
----
-
-## Test Commands
-
-```bash
-# In fresh project directory:
-./install.sh                # Run full install
-aoa health                  # Verify services
-aoa search <term>           # Test symbol search
+.context/BOARD.md                    # Updated with new plan
+plugin/                              # To be created
+services/                            # To be created (from src/)
+Dockerfile                           # To be created (unified)
 ```
