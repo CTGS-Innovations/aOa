@@ -11,7 +11,9 @@
 set -uo pipefail
 
 AOA_URL="${AOA_URL:-http://localhost:8080}"
-STATUS_FILE="${AOA_STATUS_FILE:-$HOME/.aoa/status.json}"
+# Find AOA data directory (repo/data/)
+AOA_DATA="${AOA_DATA:-$(dirname "$(dirname "$(readlink -f "$0" || echo "$0")")")/../../data}"
+STATUS_FILE="${AOA_STATUS_FILE:-$AOA_DATA/status.json}"
 MIN_INTENTS=30
 
 # ANSI colors

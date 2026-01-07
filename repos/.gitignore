@@ -1,0 +1,4 @@
+# Intel repos - indexed for search, not committed
+# These are cloned via aOa proxy for reference/learning
+*
+!.gitignore

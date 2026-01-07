@@ -2,9 +2,8 @@
 # Development files (not distributed)
 # =============================================================================
 
-# Local config and data
-.aoa/
-.aoa-template/
+# Runtime data (indexes, repos, config)
+data/
 
 # Our development hooks and settings
 .claude/
@@ -19,8 +18,6 @@ scripts/
 INSIGHTS.md
 QUICKSTART.md
 
-# Cloned repos
-repos/
 
 # Python
 __pycache__/
@@ -39,4 +36,3 @@ __pycache__/
 # OS
 .DS_Store
 Thumbs.db
-assets/.venv/

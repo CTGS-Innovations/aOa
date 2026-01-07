@@ -19,7 +19,11 @@ set -e
 # Configuration
 GATEWAY_HOST="${AOA_GATEWAY_HOST:-localhost}"
 GATEWAY_PORT="${AOA_GATEWAY_PORT:-8080}"
-AOA_HOME="${AOA_HOME:-$HOME/.aoa}"
+
+# Find AOA_HOME by locating the CLI script itself
+CLI_PATH="$(readlink -f "$0")"
+AOA_HOME="$(dirname "$(dirname "$CLI_PATH")")"
+AOA_DATA="${AOA_DATA:-$AOA_HOME/data}"
 
 INDEX_URL="http://${GATEWAY_HOST}:${GATEWAY_PORT}"
 STATUS_URL="http://${GATEWAY_HOST}:${GATEWAY_PORT}"
@@ -99,35 +103,35 @@ cmd_init() {
     mkdir -p "$project_root/.claude/hooks"
     mkdir -p "$project_root/.claude/skills"
 
-    # Copy hooks from global templates
+    # Copy hooks from templates
     echo -n "  Installing hooks.............. "
-    cp "$AOA_HOME/hooks/"*.py "$project_root/.claude/hooks/" 2>/dev/null || true
-    cp "$AOA_HOME/hooks/"*.sh "$project_root/.claude/hooks/" 2>/dev/null || true
+    cp "$AOA_HOME/plugin/hooks/"*.py "$project_root/.claude/hooks/" 2>/dev/null || true
+    cp "$AOA_HOME/plugin/hooks/"*.sh "$project_root/.claude/hooks/" 2>/dev/null || true
     chmod +x "$project_root/.claude/hooks/"*.py "$project_root/.claude/hooks/"*.sh 2>/dev/null || true
     echo -e "${GREEN}✓${NC}"
 
     # Copy skills
     echo -n "  Installing skills............. "
-    cp "$AOA_HOME/skills/"*.md "$project_root/.claude/skills/" 2>/dev/null || true
+    cp "$AOA_HOME/plugin/skills/"*.md "$project_root/.claude/skills/" 2>/dev/null || true
     echo -e "${GREEN}✓${NC}"
 
     # Copy agents
     echo -n "  Installing agents............. "
     mkdir -p "$project_root/.claude/agents"
-    cp "$AOA_HOME/agents/"*.md "$project_root/.claude/agents/" 2>/dev/null || true
+    cp "$AOA_HOME/plugin/agents/"*.md "$project_root/.claude/agents/" 2>/dev/null || true
     echo -e "${GREEN}✓${NC}"
 
     # Copy or merge settings template
     echo -n "  Creating settings............. "
     if [ ! -f "$project_root/.claude/settings.local.json" ]; then
         # No existing settings - copy template
-        cp "$AOA_HOME/settings.template.json" "$project_root/.claude/settings.local.json"
+        cp "$AOA_DATA/settings.template.json" "$project_root/.claude/settings.local.json"
         echo -e "${GREEN}✓${NC}"
     else
         # Existing settings - check if statusLine needs to be added
         if ! jq -e '.statusLine' "$project_root/.claude/settings.local.json" > /dev/null 2>&1; then
             # statusLine missing - merge it in
-            local status_line=$(jq '.statusLine' "$AOA_HOME/settings.template.json")
+            local status_line=$(jq '.statusLine' "$AOA_DATA/settings.template.json")
             jq --argjson sl "$status_line" '. + {statusLine: $sl}' \
                 "$project_root/.claude/settings.local.json" > "$project_root/.claude/settings.local.json.tmp"
             mv "$project_root/.claude/settings.local.json.tmp" "$project_root/.claude/settings.local.json"
@@ -139,7 +143,7 @@ cmd_init() {
 
     # Register project in projects.json
     echo -n "  Registering project........... "
-    local projects_file="$AOA_HOME/projects.json"
+    local projects_file="$AOA_DATA/projects.json"
     local now=$(date -Iseconds)
 
     # Create entry
@@ -216,7 +220,7 @@ cmd_remove() {
 
     # Remove from projects.json
     echo -n "  Unregistering project......... "
-    local projects_file="$AOA_HOME/projects.json"
+    local projects_file="$AOA_DATA/projects.json"
     if [ -f "$projects_file" ]; then
         jq --arg id "$project_id" 'map(select(.id != $id))' "$projects_file" > "$projects_file.tmp"
         mv "$projects_file.tmp" "$projects_file"
@@ -232,7 +236,7 @@ cmd_remove() {
     echo -n "  Checking settings............. "
     if [ -f "$project_root/.claude/settings.local.json" ]; then
         # Compare to template
-        local template_hash=$(md5sum "$AOA_HOME/settings.template.json" 2>/dev/null | cut -d' ' -f1)
+        local template_hash=$(md5sum "$AOA_DATA/settings.template.json" 2>/dev/null | cut -d' ' -f1)
         local settings_hash=$(md5sum "$project_root/.claude/settings.local.json" 2>/dev/null | cut -d' ' -f1)
 
         if [ "$template_hash" = "$settings_hash" ]; then
@@ -264,7 +268,7 @@ cmd_projects() {
     echo -e "${BOLD}aOa Projects${NC}"
     echo
 
-    local projects_file="$AOA_HOME/projects.json"
+    local projects_file="$AOA_DATA/projects.json"
 
     if [ ! -f "$projects_file" ]; then
         echo -e "${DIM}No projects registered.${NC}"
@@ -972,7 +976,13 @@ EOF
 
     curl -s --connect-timeout 1 "http://localhost:8080/health" > /dev/null 2>&1 && index_ok=true
     curl -s --connect-timeout 1 "http://localhost:8080/status" > /dev/null 2>&1 && status_ok=true
-    docker exec aoa-redis-1 redis-cli ping > /dev/null 2>&1 && redis_ok=true
+
+    # Check Redis (works in both unified and compose modes)
+    if docker exec aoa redis-cli ping > /dev/null 2>&1; then
+        redis_ok=true
+    elif docker exec aoa-redis-1 redis-cli ping > /dev/null 2>&1; then
+        redis_ok=true
+    fi
 
     if $index_ok; then
         echo -e "  Index:  ${GREEN}✓${NC} Running"

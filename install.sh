@@ -27,8 +27,11 @@ NC='\033[0m'
 # Get script directory (where aOa repo is cloned)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Global install location
-AOA_HOME="$HOME/.aoa"
+# AOA_HOME is the repo itself
+AOA_HOME="$SCRIPT_DIR"
+
+# Runtime data directory (inside repo, gitignored)
+AOA_DATA="$SCRIPT_DIR/data"
 
 # =============================================================================
 # Mode Selection (can be set via flags)
@@ -85,10 +88,10 @@ if [[ "$1" == "--uninstall" ]]; then
         FOUND_ITEMS=$((FOUND_ITEMS + 1))
     fi
 
-    # 3. Global install directory
-    if [ -d "$AOA_HOME" ]; then
-        SIZE=$(du -sh "$AOA_HOME" 2>/dev/null | cut -f1)
-        echo -e "  ${DIM}•${NC} Global install: ${BOLD}$AOA_HOME${NC} ${DIM}(${SIZE})${NC}"
+    # 3. Runtime data directory
+    if [ -d "$AOA_DATA" ]; then
+        SIZE=$(du -sh "$AOA_DATA" 2>/dev/null | cut -f1)
+        echo -e "  ${DIM}•${NC} Runtime data: ${BOLD}$AOA_DATA${NC} ${DIM}(${SIZE})${NC}"
         FOUND_ITEMS=$((FOUND_ITEMS + 1))
     fi
 
@@ -100,14 +103,14 @@ if [[ "$1" == "--uninstall" ]]; then
 
     # 5. Check for registered projects (will clean them up)
     PROJECTS_TO_CLEAN=()
-    if [ -f "$AOA_HOME/projects.json" ]; then
-        PROJECT_COUNT=$(jq 'length' "$AOA_HOME/projects.json" 2>/dev/null || echo 0)
+    if [ -f "$AOA_DATA/projects.json" ]; then
+        PROJECT_COUNT=$(jq 'length' "$AOA_DATA/projects.json" 2>/dev/null || echo 0)
         if [ "$PROJECT_COUNT" -gt 0 ]; then
             echo -e "  ${DIM}•${NC} Registered projects: ${BOLD}${PROJECT_COUNT}${NC} ${DIM}(will clean aOa files)${NC}"
             # Store project paths for cleanup
             while IFS= read -r path; do
                 PROJECTS_TO_CLEAN+=("$path")
-            done < <(jq -r '.[].path' "$AOA_HOME/projects.json" 2>/dev/null)
+            done < <(jq -r '.[].path' "$AOA_DATA/projects.json" 2>/dev/null)
             FOUND_ITEMS=$((FOUND_ITEMS + 1))
         fi
     fi
@@ -182,8 +185,8 @@ if [[ "$1" == "--uninstall" ]]; then
                 rm -f "$proj_path/.claude/agents/aoa-"* 2>/dev/null
 
                 # Check settings.local.json - only remove if unchanged from template
-                if [ -f "$proj_path/.claude/settings.local.json" ] && [ -f "$AOA_HOME/settings.template.json" ]; then
-                    TEMPLATE_HASH=$(md5sum "$AOA_HOME/settings.template.json" 2>/dev/null | cut -d' ' -f1)
+                if [ -f "$proj_path/.claude/settings.local.json" ] && [ -f "$AOA_DATA/settings.template.json" ]; then
+                    TEMPLATE_HASH=$(md5sum "$AOA_DATA/settings.template.json" 2>/dev/null | cut -d' ' -f1)
                     SETTINGS_HASH=$(md5sum "$proj_path/.claude/settings.local.json" 2>/dev/null | cut -d' ' -f1)
 
                     if [ "$TEMPLATE_HASH" = "$SETTINGS_HASH" ]; then
@@ -205,10 +208,10 @@ if [[ "$1" == "--uninstall" ]]; then
         done
     fi
 
-    # 4. Remove global install
-    if [ -d "$AOA_HOME" ]; then
-        echo -n "  Removing ~/.aoa/.............. "
-        rm -rf "$AOA_HOME"
+    # 4. Remove runtime data
+    if [ -d "$AOA_DATA" ]; then
+        echo -n "  Removing data/................ "
+        rm -rf "$AOA_DATA"
         echo -e "${GREEN}✓${NC}"
     fi
 
@@ -242,12 +245,12 @@ echo "  ║                                                               ║"
 echo "  ╚═══════════════════════════════════════════════════════════════╝"
 echo -e "${NC}"
 echo
-echo -e "  ${BOLD}Global Installation${NC}"
-echo -e "  ${DIM}Install once to ~/.aoa/, then 'aoa init' in any project.${NC}"
+echo -e "  ${BOLD}Installation${NC}"
+echo -e "  ${DIM}Install from this directory, then 'aoa init' in any project.${NC}"
 echo
 echo -e "  ${DIM}This installer will:${NC}"
 echo -e "  ${DIM}  1. Check prerequisites (Docker)${NC}"
-echo -e "  ${DIM}  2. Create ~/.aoa/ with services${NC}"
+echo -e "  ${DIM}  2. Create data/ directory for runtime state${NC}"
 echo -e "  ${DIM}  3. Build the aOa Docker image${NC}"
 echo -e "  ${DIM}  4. Start aOa services${NC}"
 echo -e "  ${DIM}  5. Install the aoa CLI${NC}"
@@ -330,54 +333,26 @@ read -r
 echo
 
 # =============================================================================
-# Step 2: Create Global Directory
+# Step 2: Create Runtime Data Directory
 # =============================================================================
 
-echo -e "${CYAN}${BOLD}[2/5] Setting Up Global Installation${NC}"
+echo -e "${CYAN}${BOLD}[2/5] Setting Up Runtime Data Directory${NC}"
 echo -e "${DIM}─────────────────────────────────────────────────────────────────${NC}"
 echo
-echo -e "  ${DIM}Installing to: ${AOA_HOME}${NC}"
+echo -e "  ${DIM}Creating: ${AOA_DATA}${NC}"
 echo
 
-# Create directory structure
-mkdir -p "$AOA_HOME"/{indexes,repos,bin,services,hooks}
-
-# Copy service files
-echo -n "  Copying services.............. "
-cp -r "$SCRIPT_DIR/services/"* "$AOA_HOME/services/" 2>/dev/null || true
-echo -e "${GREEN}✓${NC}"
-
-# Copy Dockerfile
-echo -n "  Copying Dockerfile............ "
-cp "$SCRIPT_DIR/Dockerfile" "$AOA_HOME/"
-echo -e "${GREEN}✓${NC}"
-
-# Copy hook templates (for aoa init)
-echo -n "  Copying hook templates........ "
-cp "$SCRIPT_DIR/plugin/hooks/"*.py "$AOA_HOME/hooks/" 2>/dev/null || true
-cp "$SCRIPT_DIR/plugin/hooks/"*.sh "$AOA_HOME/hooks/" 2>/dev/null || true
-echo -e "${GREEN}✓${NC}"
-
-# Copy skills template
-echo -n "  Copying skill templates....... "
-mkdir -p "$AOA_HOME/skills"
-cp "$SCRIPT_DIR/plugin/skills/"*.md "$AOA_HOME/skills/" 2>/dev/null || true
-echo -e "${GREEN}✓${NC}"
-
-# Copy agent templates
-echo -n "  Copying agent templates....... "
-mkdir -p "$AOA_HOME/agents"
-cp "$SCRIPT_DIR/plugin/agents/"*.md "$AOA_HOME/agents/" 2>/dev/null || true
-echo -e "${GREEN}✓${NC}"
+# Create data directory structure
+mkdir -p "$AOA_DATA"/{indexes,repos}
 
 # Create empty projects.json
 echo -n "  Initializing projects......... "
-echo "[]" > "$AOA_HOME/projects.json"
+echo "[]" > "$AOA_DATA/projects.json"
 echo -e "${GREEN}✓${NC}"
 
 # Create settings template (for aoa init)
 echo -n "  Creating settings template.... "
-cat > "$AOA_HOME/settings.template.json" << 'EOFCONFIG'
+cat > "$AOA_DATA/settings.template.json" << 'EOFCONFIG'
 {
   "permissions": {
     "allow": [
@@ -447,7 +422,7 @@ EOFCONFIG
 echo -e "${GREEN}✓${NC}"
 
 echo
-echo -e "  ${GREEN}Global directory ready.${NC}"
+echo -e "  ${GREEN}Runtime data directory ready.${NC}"
 echo
 sleep 1
 
@@ -461,22 +436,16 @@ echo
 
 cd "$AOA_HOME"
 
-# Copy the remaining files needed for build
-cp -r "$SCRIPT_DIR/cli" "$AOA_HOME/" 2>/dev/null || true
-
 if [ "$USE_COMPOSE" -eq 1 ]; then
     echo -e "  ${DIM}Building Docker images (compose mode)...${NC}"
     echo -e "  ${DIM}This may take a minute on first run.${NC}"
     echo
-    # Copy docker-compose.yml to global location
-    cp "$SCRIPT_DIR/docker-compose.yml" "$AOA_HOME/"
-    cd "$AOA_HOME"
     docker compose build --no-cache --quiet
 else
     echo -e "  ${DIM}Building unified Docker image...${NC}"
     echo -e "  ${DIM}This may take a minute on first run.${NC}"
     echo
-    docker build --no-cache -t aoa "$AOA_HOME" --quiet
+    docker build --no-cache -t aoa . --quiet
 fi
 
 echo
@@ -510,9 +479,9 @@ else
         --name aoa \
         -p 8080:8080 \
         -v "${HOME}:/userhome:ro" \
-        -v "${AOA_HOME}/repos:/repos:rw" \
-        -v "${AOA_HOME}/indexes:/indexes:rw" \
-        -v "${AOA_HOME}:/config:rw" \
+        -v "${AOA_DATA}/repos:/repos:rw" \
+        -v "${AOA_DATA}/indexes:/indexes:rw" \
+        -v "${AOA_DATA}:/config:rw" \
         -v "${HOME}/.claude:/claude-sessions:ro" \
         -e "USER_HOME=${HOME}" \
         --restart unless-stopped \
@@ -543,14 +512,13 @@ echo -e "${CYAN}${BOLD}[5/5] Installing aOa CLI${NC}"
 echo -e "${DIM}─────────────────────────────────────────────────────────────────${NC}"
 echo
 
-# Copy CLI to ~/.aoa/bin
-cp "$SCRIPT_DIR/cli/aoa" "$AOA_HOME/bin/aoa"
-chmod +x "$AOA_HOME/bin/aoa"
+# Make CLI executable
+chmod +x "$AOA_HOME/cli/aoa"
 
-# Symlink or copy to ~/bin
+# Symlink to ~/bin
 mkdir -p "$HOME/bin"
-ln -sf "$AOA_HOME/bin/aoa" "$HOME/bin/aoa"
-echo -e "  ${GREEN}✓ Installed to ~/bin/aoa${NC}"
+ln -sf "$AOA_HOME/cli/aoa" "$HOME/bin/aoa"
+echo -e "  ${GREEN}✓ Symlinked to ~/bin/aoa${NC}"
 
 # Check if ~/bin is in PATH
 PATH_UPDATED=0
@@ -592,13 +560,14 @@ echo -e "${NC}"
 echo
 
 echo -e "${GREEN}${BOLD}What was installed:${NC}"
-echo -e "  ${DIM}•${NC} ~/.aoa/               ${DIM}- Global installation directory${NC}"
+echo -e "  ${DIM}•${NC} ${BOLD}${AOA_HOME}${NC}"
+echo -e "      ${DIM}└─ data/              Runtime state (indexes, repos, config)${NC}"
 if [ "$USE_COMPOSE" -eq 1 ]; then
     echo -e "  ${DIM}•${NC} Docker Compose        ${DIM}- 5 containers on port 8080${NC}"
 else
     echo -e "  ${DIM}•${NC} Docker container      ${DIM}- Unified container on port 8080${NC}"
 fi
-echo -e "  ${DIM}•${NC} aoa CLI               ${DIM}- Command line interface${NC}"
+echo -e "  ${DIM}•${NC} ~/bin/aoa → ${BOLD}${AOA_HOME}/cli/aoa${NC}"
 echo
 
 echo -e "${YELLOW}${BOLD}Next steps:${NC}"
@@ -616,5 +585,6 @@ echo -e "  ${DIM}\$${NC} aoa health         ${DIM}# Check services${NC}"
 echo -e "  ${DIM}\$${NC} aoa projects       ${DIM}# List enabled projects${NC}"
 echo
 
-echo -e "${DIM}Global install: ${AOA_HOME}${NC}"
+echo -e "${DIM}Install location: ${AOA_HOME}${NC}"
+echo -e "${DIM}Data directory:   ${AOA_DATA}${NC}"
 echo
