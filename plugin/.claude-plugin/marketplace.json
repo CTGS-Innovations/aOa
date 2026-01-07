@@ -10,7 +10,7 @@
   "plugins": [
     {
       "name": "aoa",
-      "source": ".",
+      "source": "./",
       "description": "5 angles. 1 attack. Cut Claude Code costs by 2/3.",
       "version": "1.0.0"
     }
