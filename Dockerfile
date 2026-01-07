@@ -6,7 +6,7 @@
 # Build:   docker build -t aoa .
 # Run:     docker run -d -p 8080:8080 \
 #            -v $(pwd):/codebase:ro \
-#            -v ./repos:/repos:ro \
+#            -v ./repos:/repos:rw \
 #            -v ./.aoa:/config:rw \
 #            -v ~/.claude:/claude-sessions:ro \
 #            aoa

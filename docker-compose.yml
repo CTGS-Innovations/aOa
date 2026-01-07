@@ -97,7 +97,7 @@ services:
       context: ./services/proxy
       dockerfile: Dockerfile
     volumes:
-      - ./repos:/repos:ro
+      - ./repos:/repos:rw
       - ./.aoa:/config:ro
     environment:
       - REPOS_ROOT=/repos

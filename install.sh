@@ -406,6 +406,17 @@ if [ -z "$SKIP_HOOKS" ]; then
     cp "$SCRIPT_DIR/plugin/skills/"*.md .claude/skills/ 2>/dev/null || true
     echo -e "${GREEN}✓${NC}"
 
+    # Create repos directory for intel repos (gitignored)
+    echo -n "  Creating repos directory...... "
+    mkdir -p "$SCRIPT_DIR/repos"
+    cat > "$SCRIPT_DIR/repos/.gitignore" << 'EOF'
+# Intel repos - indexed for search, not committed
+# These are cloned via aOa proxy for reference/learning
+*
+!.gitignore
+EOF
+    echo -e "${GREEN}✓${NC}"
+
     # Create settings.local.json
     echo -n "  Creating settings............. "
     cat > .claude/settings.local.json << 'EOFCONFIG'
@@ -542,7 +553,7 @@ else
         --name aoa \
         -p 8080:8080 \
         -v "${CODEBASE_PATH}:/codebase:ro" \
-        -v "${SCRIPT_DIR}/repos:/repos:ro" \
+        -v "${SCRIPT_DIR}/repos:/repos:rw" \
         -v "${SCRIPT_DIR}/.aoa:/config:rw" \
         -v "${HOME}/.claude:/claude-sessions:ro" \
         aoa > /dev/null
