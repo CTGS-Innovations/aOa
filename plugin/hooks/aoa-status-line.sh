@@ -1,12 +1,10 @@
 #!/bin/bash
 # =============================================================================
-# aOa Status Line - Progressive Display
+# aOa Status Line - Two-Line Progressive Display
 # =============================================================================
 #
-# Progression:
-#   Learning:    ⚡ aOa ⚪ 5/30 │ 4.2ms • 12 results │ ctx:... │ Model
-#   Predicting:  ⚡ aOa 🟢 120 │ 3.5ms • 6 results │ ctx:... │ Model
-#   With savings: ⚡ aOa 🟢 250 │ ↓12k ⚡30s saved │ ctx:... │ Model
+# Line 1: user:directory (branch) +add/-del cc_version
+# Line 2: ⚡ aOa 🟢 100% │ intents │ savings │ context │ Model
 #
 # =============================================================================
 
@@ -25,6 +23,7 @@ GRAY='\033[90m'
 BOLD='\033[1m'
 DIM='\033[2m'
 RESET='\033[0m'
+MAGENTA='\033[95m'
 
 # === READ INPUT FROM CLAUDE CODE ===
 input=$(cat)
@@ -35,7 +34,48 @@ CONTEXT_SIZE=$(echo "$input" | jq -r '.context_window.context_window_size // 200
 MODEL=$(echo "$input" | jq -r '.model.display_name // "Unknown"' 2>/dev/null)
 CWD=$(echo "$input" | jq -r '.cwd // ""' 2>/dev/null)
 
-# Format CWD (show last 2 path components)
+# === LINE 1: Environment Context ===
+USERNAME="${USER:-$(whoami)}"
+
+# Get git info if in a git repo
+GIT_BRANCH=""
+GIT_CHANGES=""
+if [ -n "$CWD" ] && [ -d "$CWD/.git" ] || git -C "$CWD" rev-parse --git-dir >/dev/null 2>&1; then
+    GIT_BRANCH=$(git -C "$CWD" symbolic-ref --short HEAD 2>/dev/null || git -C "$CWD" rev-parse --short HEAD 2>/dev/null)
+
+    # Get insertions/deletions from staged + unstaged changes
+    GIT_STAT=$(git -C "$CWD" diff --shortstat HEAD 2>/dev/null)
+    if [ -n "$GIT_STAT" ]; then
+        INSERTIONS=$(echo "$GIT_STAT" | grep -oE '[0-9]+ insertion' | grep -oE '[0-9]+' || echo "0")
+        DELETIONS=$(echo "$GIT_STAT" | grep -oE '[0-9]+ deletion' | grep -oE '[0-9]+' || echo "0")
+        [ -z "$INSERTIONS" ] && INSERTIONS=0
+        [ -z "$DELETIONS" ] && DELETIONS=0
+        if [ "$INSERTIONS" -gt 0 ] || [ "$DELETIONS" -gt 0 ]; then
+            GIT_CHANGES="${GREEN}+${INSERTIONS}${RESET}/${RED}-${DELETIONS}${RESET}"
+        fi
+    fi
+fi
+
+# Get Claude Code version from CLI
+CC_VERSION=$(claude --version 2>/dev/null | grep -oP '[\d.]+' | head -1 || echo "")
+CC_VER_DISPLAY=""
+if [ -n "$CC_VERSION" ]; then
+    CC_VER_DISPLAY="${DIM}cc${RESET}${CYAN}${CC_VERSION}${RESET}"
+fi
+
+# Build Line 1
+LINE1="${MAGENTA}${USERNAME}${RESET}:${CYAN}${CWD}${RESET}"
+if [ -n "$GIT_BRANCH" ]; then
+    LINE1="${LINE1} ${DIM}(${RESET}${YELLOW}${GIT_BRANCH}${RESET}${DIM})${RESET}"
+fi
+if [ -n "$GIT_CHANGES" ]; then
+    LINE1="${LINE1} ${GIT_CHANGES}"
+fi
+if [ -n "$CC_VER_DISPLAY" ]; then
+    LINE1="${LINE1} ${DIM}${CC_VER_DISPLAY}${RESET}"
+fi
+
+# Format CWD (show last 2 path components) - for compact display
 if [ -n "$CWD" ]; then
     CWD_SHORT=$(echo "$CWD" | rev | cut -d'/' -f1-2 | rev)
 else
@@ -128,7 +168,8 @@ else
 fi
 
 if [ -z "$METRICS" ]; then
-    # aOa not running - minimal output
+    # aOa not running - minimal output (still show both lines)
+    echo -e "${LINE1}"
     echo -e "${CYAN}${BOLD}⚡ aOa${RESET} ${DIM}offline${RESET} ${DIM}│${RESET} ctx:${CTX_COLOR}${TOTAL_FMT}/${CTX_SIZE_FMT}${RESET} ${DIM}(${PERCENT}%)${RESET} ${DIM}│${RESET} ${MODEL}"
     exit 0
 fi
@@ -184,9 +225,8 @@ else
 fi
 
 # === OUTPUT ===
-# Include CWD if available
-if [ -n "$CWD_SHORT" ]; then
-    echo -e "${CYAN}${BOLD}⚡ aOa${RESET} ${LIGHT} ${INTENT_DISPLAY} ${SEP} ${MIDDLE} ${SEP} ctx:${CTX_COLOR}${TOTAL_FMT}/${CTX_SIZE_FMT}${RESET} ${DIM}(${PERCENT}%)${RESET} ${SEP} ${MODEL} ${DIM}│${RESET} ${CYAN}${CWD_SHORT}${RESET}"
-else
-    echo -e "${CYAN}${BOLD}⚡ aOa${RESET} ${LIGHT} ${INTENT_DISPLAY} ${SEP} ${MIDDLE} ${SEP} ctx:${CTX_COLOR}${TOTAL_FMT}/${CTX_SIZE_FMT}${RESET} ${DIM}(${PERCENT}%)${RESET} ${SEP} ${MODEL}"
-fi
+# Line 1: Environment context
+echo -e "${LINE1}"
+
+# Line 2: aOa status
+echo -e "${CYAN}${BOLD}⚡ aOa${RESET} ${LIGHT} ${INTENT_DISPLAY} ${SEP} ${MIDDLE} ${SEP} ctx:${CTX_COLOR}${TOTAL_FMT}/${CTX_SIZE_FMT}${RESET} ${DIM}(${PERCENT}%)${RESET} ${SEP} ${MODEL}"
