@@ -1,10 +1,26 @@
-# aOa specific
-.aoa/*.db
-.aoa/*.sqlite
-repos/
+# =============================================================================
+# Development files (not distributed)
+# =============================================================================
 
-# Claude Code (user-specific settings)
-.claude/settings.local.json
+# Local config and data
+.aoa/
+.aoa-template/
+
+# Our development hooks and settings
+.claude/
+
+# Work tracking (BOARD.md, CURRENT.md, etc.)
+.context/
+
+# Development assets
+assets/
+docs/
+scripts/
+INSIGHTS.md
+QUICKSTART.md
+
+# Cloned repos
+repos/
 
 # Python
 __pycache__/

@@ -1,7 +1,0 @@
-{
-  "gateway_port": 8080,
-  "max_repo_size_mb": 500,
-  "clone_timeout": 300,
-  "confidence_threshold": 0.60,
-  "learning_phase_minimum": 50
-}
