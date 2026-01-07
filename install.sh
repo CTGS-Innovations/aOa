@@ -62,12 +62,101 @@ if [[ "$1" == "--uninstall" ]]; then
     # 2. aOa files in .claude (only our files, not the whole directory)
     AOA_HOOKS=$(ls .claude/hooks/aoa-* 2>/dev/null | wc -l)
     AOA_SKILL=$([ -f ".claude/skills/aoa.md" ] && echo 1 || echo 0)
+
+    # Check settings.local.json - compare to our template
+    AOA_SETTINGS=0
+    AOA_SETTINGS_CLEAN=0
+    if [ -f ".claude/settings.local.json" ]; then
+        AOA_SETTINGS=1
+        # Generate our known template hash
+        EXPECTED_HASH=$(cat << 'EOFTEMPLATE' | md5sum | cut -d' ' -f1
+{
+  "permissions": {
+    "allow": [
+      "Bash(aoa search:*)",
+      "Bash(aoa health:*)",
+      "Bash(aoa help:*)",
+      "Bash(aoa metrics:*)",
+      "Bash(aoa intent:*)",
+      "Bash(aoa services:*)",
+      "Bash(aoa changes:*)",
+      "Bash(aoa why:*)",
+      "Bash(docker-compose:*)",
+      "Bash(docker ps:*)",
+      "Bash(docker logs:*)",
+      "Bash(curl:*)",
+      "Bash(ls:*)"
+    ]
+  },
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/aoa-intent-summary.py\"",
+            "timeout": 2
+          },
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/aoa-predict-context.py\"",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Read|Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/aoa-intent-prefetch.py\"",
+            "timeout": 2
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Read|Edit|Write|Bash|Grep|Glob",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/aoa-intent-capture.py\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/aoa-status-line.sh\""
+  }
+}
+EOFTEMPLATE
+)
+        ACTUAL_HASH=$(md5sum .claude/settings.local.json 2>/dev/null | cut -d' ' -f1)
+        if [ "$EXPECTED_HASH" = "$ACTUAL_HASH" ]; then
+            AOA_SETTINGS_CLEAN=1
+        fi
+    fi
+
     if [ "$AOA_HOOKS" -gt 0 ]; then
         echo -e "  ${DIM}•${NC} Hooks: ${BOLD}.claude/hooks/aoa-*${NC} ${DIM}(${AOA_HOOKS} files)${NC}"
         FOUND_ITEMS=$((FOUND_ITEMS + 1))
     fi
     if [ "$AOA_SKILL" -eq 1 ]; then
         echo -e "  ${DIM}•${NC} Skill: ${BOLD}.claude/skills/aoa.md${NC}"
+        FOUND_ITEMS=$((FOUND_ITEMS + 1))
+    fi
+    if [ "$AOA_SETTINGS" -eq 1 ]; then
+        if [ "$AOA_SETTINGS_CLEAN" -eq 1 ]; then
+            echo -e "  ${DIM}•${NC} Settings: ${BOLD}.claude/settings.local.json${NC} ${DIM}(unmodified)${NC}"
+        else
+            echo -e "  ${DIM}•${NC} Settings: ${BOLD}.claude/settings.local.json${NC} ${YELLOW}(customized)${NC}"
+        fi
         FOUND_ITEMS=$((FOUND_ITEMS + 1))
     fi
 
@@ -129,6 +218,16 @@ if [[ "$1" == "--uninstall" ]]; then
         rm -f .claude/skills/aoa.md 2>/dev/null
         echo -e "${GREEN}✓${NC}"
     fi
+    if [ "$AOA_SETTINGS" -eq 1 ]; then
+        if [ "$AOA_SETTINGS_CLEAN" -eq 1 ]; then
+            echo -n "  Removing settings............. "
+            rm -f .claude/settings.local.json 2>/dev/null
+            echo -e "${GREEN}✓${NC}"
+        else
+            echo -e "  ${YELLOW}! Settings customized - preserving .claude/settings.local.json${NC}"
+            SETTINGS_PRESERVED=1
+        fi
+    fi
 
     # 4. Remove CLI
     if [ -f "/usr/local/bin/aoa" ]; then
@@ -146,10 +245,17 @@ if [[ "$1" == "--uninstall" ]]; then
     echo -e "  ${GREEN}${BOLD}✓ aOa uninstalled successfully${NC}"
     echo
 
-    # Note about settings.local.json
-    if [ -f ".claude/settings.local.json" ]; then
-        echo -e "  ${DIM}Note: .claude/settings.local.json was preserved.${NC}"
-        echo -e "  ${DIM}You may want to remove aOa hook entries manually.${NC}"
+    # Guidance for customized settings
+    if [ "${SETTINGS_PRESERVED:-0}" -eq 1 ]; then
+        echo -e "  ${YELLOW}${BOLD}Manual cleanup needed:${NC}"
+        echo -e "  ${DIM}Your .claude/settings.local.json has custom changes.${NC}"
+        echo -e "  ${DIM}Remove these aOa sections if desired:${NC}"
+        echo
+        echo -e "  ${DIM}• permissions.allow: Bash(aoa *) entries${NC}"
+        echo -e "  ${DIM}• hooks.UserPromptSubmit: aoa-intent-summary.py, aoa-predict-context.py${NC}"
+        echo -e "  ${DIM}• hooks.PreToolUse: aoa-intent-prefetch.py${NC}"
+        echo -e "  ${DIM}• hooks.PostToolUse: aoa-intent-capture.py${NC}"
+        echo -e "  ${DIM}• statusLine: aoa-status-line.sh${NC}"
         echo
     fi
 
