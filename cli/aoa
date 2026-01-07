@@ -1,29 +1,25 @@
 #!/usr/bin/env bash
 # aoa - 5 angles. 1 attack.
-# FIND ME
-# Usage:
-#   aoa status              Show status line
-#   aoa status --watch      Live updating status
-#   aoa status --json       Full metrics as JSON
 #
-#   aoa search <term>       Search LOCAL codebase
-#   aoa multi <t1,t2,...>   Multi-term search (local)
-#   aoa changes [time]      Recent changes (5m, 1h, etc.)
-#   aoa files [pattern]     List local files
+# Global Installation:
+#   ./install.sh            Install aOa globally to ~/.aoa/
 #
-#   aoa repo list           List knowledge repos
-#   aoa repo add <n> <url>  Add a knowledge repo
-#   aoa repo remove <name>  Remove a knowledge repo
-#   aoa repo <name> search  Search in a specific repo
-#   aoa repo <name> files   List files in a specific repo
+# Per-Project:
+#   aoa init                Enable aOa for current project
+#   aoa remove              Disable aOa for current project
+#   aoa projects            List all enabled projects
 #
+# Search (after init):
+#   aoa search <term>       Search current project
+#   aoa multi <t1,t2,...>   Multi-term search
 #   aoa health              Check services
 
 set -e
 
-# Configuration - all requests go through gateway (8080)
+# Configuration
 GATEWAY_HOST="${AOA_GATEWAY_HOST:-localhost}"
 GATEWAY_PORT="${AOA_GATEWAY_PORT:-8080}"
+AOA_HOME="${AOA_HOME:-$HOME/.aoa}"
 
 INDEX_URL="http://${GATEWAY_HOST}:${GATEWAY_PORT}"
 STATUS_URL="http://${GATEWAY_HOST}:${GATEWAY_PORT}"
@@ -37,6 +33,241 @@ BLUE='\033[0;34m'
 CYAN='\033[0;36m'
 RED='\033[0;31m'
 NC='\033[0m'
+
+# =============================================================================
+# Project Management Commands
+# =============================================================================
+
+# Get project ID (hash of git root)
+get_project_id() {
+    local git_root=$(git rev-parse --show-toplevel 2>/dev/null)
+    if [ -z "$git_root" ]; then
+        echo ""
+        return
+    fi
+    echo "$git_root" | md5sum | cut -c1-8
+}
+
+# Get project root
+get_project_root() {
+    git rev-parse --show-toplevel 2>/dev/null
+}
+
+# Get project name
+get_project_name() {
+    local root=$(get_project_root)
+    if [ -n "$root" ]; then
+        basename "$root"
+    fi
+}
+
+cmd_init() {
+    echo -e "${CYAN}${BOLD}⚡ aOa - Initializing Project${NC}"
+    echo
+
+    # Check if aOa is installed globally
+    if [ ! -d "$AOA_HOME" ]; then
+        echo -e "${RED}aOa not installed globally.${NC}"
+        echo -e "${DIM}Run ./install.sh from the aOa repository first.${NC}"
+        return 1
+    fi
+
+    # Check if we're in a git repo
+    local project_root=$(get_project_root)
+    if [ -z "$project_root" ]; then
+        echo -e "${RED}Not in a git repository.${NC}"
+        echo -e "${DIM}aOa requires a git repo to detect project boundaries.${NC}"
+        return 1
+    fi
+
+    local project_id=$(get_project_id)
+    local project_name=$(get_project_name)
+
+    echo -e "  Project: ${BOLD}${project_name}${NC}"
+    echo -e "  Path:    ${DIM}${project_root}${NC}"
+    echo -e "  ID:      ${DIM}${project_id}${NC}"
+    echo
+
+    # Check if already initialized
+    if [ -f "$project_root/.claude/hooks/aoa-status-line.sh" ]; then
+        echo -e "${YELLOW}Project already initialized.${NC}"
+        echo -e "${DIM}Run 'aoa remove' first to reinitialize.${NC}"
+        return 0
+    fi
+
+    # Create .claude directories
+    mkdir -p "$project_root/.claude/hooks"
+    mkdir -p "$project_root/.claude/skills"
+
+    # Copy hooks from global templates
+    echo -n "  Installing hooks.............. "
+    cp "$AOA_HOME/hooks/"*.py "$project_root/.claude/hooks/" 2>/dev/null || true
+    cp "$AOA_HOME/hooks/"*.sh "$project_root/.claude/hooks/" 2>/dev/null || true
+    chmod +x "$project_root/.claude/hooks/"*.py "$project_root/.claude/hooks/"*.sh 2>/dev/null || true
+    echo -e "${GREEN}✓${NC}"
+
+    # Copy skills
+    echo -n "  Installing skills............. "
+    cp "$AOA_HOME/skills/"*.md "$project_root/.claude/skills/" 2>/dev/null || true
+    echo -e "${GREEN}✓${NC}"
+
+    # Copy settings template
+    echo -n "  Creating settings............. "
+    if [ ! -f "$project_root/.claude/settings.local.json" ]; then
+        cp "$AOA_HOME/settings.template.json" "$project_root/.claude/settings.local.json"
+        echo -e "${GREEN}✓${NC}"
+    else
+        echo -e "${YELLOW}exists (preserved)${NC}"
+    fi
+
+    # Register project in projects.json
+    echo -n "  Registering project........... "
+    local projects_file="$AOA_HOME/projects.json"
+    local now=$(date -Iseconds)
+
+    # Create entry
+    local entry=$(jq -n \
+        --arg id "$project_id" \
+        --arg name "$project_name" \
+        --arg path "$project_root" \
+        --arg added "$now" \
+        '{id: $id, name: $name, path: $path, added: $added}')
+
+    # Add to projects.json (remove existing entry with same id first)
+    local updated=$(jq --arg id "$project_id" 'map(select(.id != $id))' "$projects_file")
+    echo "$updated" | jq --argjson entry "$entry" '. + [$entry]' > "$projects_file.tmp"
+    mv "$projects_file.tmp" "$projects_file"
+    echo -e "${GREEN}✓${NC}"
+
+    # Trigger initial index
+    echo -n "  Indexing project.............. "
+    local index_result=$(curl -s -X POST "${INDEX_URL}/project/register" \
+        -H "Content-Type: application/json" \
+        -d "{\"id\": \"${project_id}\", \"name\": \"${project_name}\", \"path\": \"${project_root}\"}" 2>/dev/null)
+
+    if echo "$index_result" | jq -e '.success' > /dev/null 2>&1; then
+        local file_count=$(echo "$index_result" | jq -r '.files // 0')
+        echo -e "${GREEN}✓${NC} ${DIM}(${file_count} files)${NC}"
+    else
+        echo -e "${YELLOW}pending${NC} ${DIM}(will index on first search)${NC}"
+    fi
+
+    echo
+    echo -e "${GREEN}${BOLD}✓ aOa enabled for ${project_name}${NC}"
+    echo
+    echo -e "${DIM}Restart Claude Code to activate hooks.${NC}"
+    echo -e "${DIM}Then try: aoa search <term>${NC}"
+    echo
+}
+
+cmd_remove() {
+    echo -e "${CYAN}${BOLD}⚡ aOa - Removing from Project${NC}"
+    echo
+
+    local project_root=$(get_project_root)
+    if [ -z "$project_root" ]; then
+        echo -e "${RED}Not in a git repository.${NC}"
+        return 1
+    fi
+
+    local project_id=$(get_project_id)
+    local project_name=$(get_project_name)
+
+    echo -e "  Project: ${BOLD}${project_name}${NC}"
+    echo
+
+    # Check if initialized
+    if [ ! -f "$project_root/.claude/hooks/aoa-status-line.sh" ]; then
+        echo -e "${DIM}aOa not initialized in this project.${NC}"
+        return 0
+    fi
+
+    # Remove hooks
+    echo -n "  Removing hooks................ "
+    rm -f "$project_root/.claude/hooks/aoa-"* 2>/dev/null || true
+    echo -e "${GREEN}✓${NC}"
+
+    # Remove skills
+    echo -n "  Removing skills............... "
+    rm -f "$project_root/.claude/skills/aoa.md" 2>/dev/null || true
+    echo -e "${GREEN}✓${NC}"
+
+    # Remove from projects.json
+    echo -n "  Unregistering project......... "
+    local projects_file="$AOA_HOME/projects.json"
+    if [ -f "$projects_file" ]; then
+        jq --arg id "$project_id" 'map(select(.id != $id))' "$projects_file" > "$projects_file.tmp"
+        mv "$projects_file.tmp" "$projects_file"
+    fi
+    echo -e "${GREEN}✓${NC}"
+
+    # Notify service to remove index
+    echo -n "  Removing index................ "
+    curl -s -X DELETE "${INDEX_URL}/project/${project_id}" > /dev/null 2>&1 || true
+    echo -e "${GREEN}✓${NC}"
+
+    # Check if settings.local.json is our template
+    echo -n "  Checking settings............. "
+    if [ -f "$project_root/.claude/settings.local.json" ]; then
+        # Compare to template
+        local template_hash=$(md5sum "$AOA_HOME/settings.template.json" 2>/dev/null | cut -d' ' -f1)
+        local settings_hash=$(md5sum "$project_root/.claude/settings.local.json" 2>/dev/null | cut -d' ' -f1)
+
+        if [ "$template_hash" = "$settings_hash" ]; then
+            rm -f "$project_root/.claude/settings.local.json"
+            echo -e "${GREEN}removed${NC}"
+        else
+            echo -e "${YELLOW}preserved (customized)${NC}"
+        fi
+    else
+        echo -e "${DIM}not found${NC}"
+    fi
+
+    echo
+    echo -e "${GREEN}${BOLD}✓ aOa removed from ${project_name}${NC}"
+    echo
+}
+
+cmd_projects() {
+    echo -e "${BOLD}aOa Projects${NC}"
+    echo
+
+    local projects_file="$AOA_HOME/projects.json"
+
+    if [ ! -f "$projects_file" ]; then
+        echo -e "${DIM}No projects registered.${NC}"
+        echo -e "${DIM}Run 'aoa init' in a project to enable aOa.${NC}"
+        return 0
+    fi
+
+    local count=$(jq 'length' "$projects_file" 2>/dev/null)
+
+    if [ "$count" = "0" ] || [ -z "$count" ]; then
+        echo -e "${DIM}No projects registered.${NC}"
+        echo -e "${DIM}Run 'aoa init' in a project to enable aOa.${NC}"
+        return 0
+    fi
+
+    # Get current project for highlighting
+    local current_id=$(get_project_id)
+
+    # List projects
+    jq -r '.[] | "\(.id)|\(.name)|\(.path)"' "$projects_file" | while IFS='|' read -r id name path; do
+        if [ "$id" = "$current_id" ]; then
+            echo -e "  ${GREEN}▸${NC} ${BOLD}${name}${NC} ${DIM}${path}${NC} ${GREEN}(current)${NC}"
+        else
+            # Check if path still exists
+            if [ -d "$path" ]; then
+                echo -e "  ${DIM}•${NC} ${name} ${DIM}${path}${NC}"
+            else
+                echo -e "  ${RED}✗${NC} ${name} ${DIM}${path}${NC} ${RED}(missing)${NC}"
+            fi
+        fi
+    done
+
+    echo
+    echo -e "${DIM}${count} project(s) registered${NC}"
+}
 
 # =============================================================================
 # Status Commands
@@ -100,7 +331,14 @@ cmd_search() {
         return 1
     fi
 
-    local result=$(curl -s "${INDEX_URL}/symbol?q=${query}&mode=${mode}&limit=${limit}")
+    # Get current project context
+    local project_id=$(get_project_id)
+    local project_param=""
+    if [ -n "$project_id" ]; then
+        project_param="&project=${project_id}"
+    fi
+
+    local result=$(curl -s "${INDEX_URL}/symbol?q=${query}&mode=${mode}&limit=${limit}${project_param}")
     local ms=$(echo "$result" | jq -r '.ms // 0')
     local count=$(echo "$result" | jq -r '.results | length')
 
@@ -121,12 +359,21 @@ cmd_multi() {
         return 1
     fi
 
+    # Get current project context
+    local project_id=$(get_project_id)
+
     # Convert to JSON array
     local json_terms=$(echo "$terms" | tr ',' '\n' | jq -R . | jq -s .)
 
+    local body="{\"terms\": ${json_terms}, \"mode\": \"${mode}\", \"limit\": ${limit}"
+    if [ -n "$project_id" ]; then
+        body="${body}, \"project\": \"${project_id}\""
+    fi
+    body="${body}}"
+
     local result=$(curl -s -X POST "${INDEX_URL}/multi" \
         -H "Content-Type: application/json" \
-        -d "{\"terms\": ${json_terms}, \"mode\": \"${mode}\", \"limit\": ${limit}}")
+        -d "$body")
 
     local ms=$(echo "$result" | jq -r '.ms // 0')
     local count=$(echo "$result" | jq -r '.results | length')
@@ -932,18 +1179,24 @@ cmd_help() {
                               AOA
                        5 angles. 1 attack.
 
+GETTING STARTED
+  ./install.sh           Install aOa globally (once)
+  aoa init               Enable aOa in current project
+  aoa remove             Disable aOa in current project
+  aoa projects           List all enabled projects
+
+PROJECT SEARCH
+  search <term>          O(1) symbol lookup (current project)
+  multi <t1,t2,...>      Multi-angle search
+  changes [time]         Recent file changes (e.g., 5m, 1h)
+  files [pattern]        List indexed files
+
 ATTACK STATUS
   status                 Show attack status (hit rate, intents)
   status --watch         Live updating status
   status --json          Full metrics as JSON
   history [limit]        Recent events
   reset [session|weekly] Reset counters
-
-SYMBOL ANGLE (your project - default)
-  search <term>          O(1) symbol lookup
-  multi <t1,t2,...>      Multi-angle search
-  changes [time]         Recent file changes (e.g., 5m, 1h)
-  files [pattern]        List indexed files
 
 SIGNAL ANGLE (pattern matching)
   pattern '<json>'       Multi-pattern regex search
@@ -957,44 +1210,35 @@ INTENT ANGLE (behavioral tracking)
   intent file <path>     Tags associated with a file
   intent stats           Intent index statistics
 
-URL WHITELIST (network security)
-  whitelist list         Show allowed URLs
-  whitelist add <host>   Add URL (e.g., git.company.com)
-  whitelist remove <h>   Remove custom URL
-
 INTEL ANGLE (external reference)
   repo list              List intel sources
   repo add <name> <url>  Clone and index a git repo
   repo remove <name>     Remove an intel source
-
   repo <name> search <t> Search in a specific repo
-  repo <name> multi <ts> Multi-term search in repo
-  repo <name> files      List files in repo
-  repo <name> file <p>   Get file content from repo
 
-STRIKE ANGLE (prediction)
+SYSTEM
   health                 Check all angles
   metrics                Prediction accuracy and savings
-  memory [format]        Dynamic working context (prose|compact|structured)
   services               Visual service map with live status
 
 EXAMPLES
-  # Local project search (default)
+  # First time setup
+  ./install.sh                  # Install globally (once)
+  cd ~/my-project && aoa init   # Enable for project
+
+  # Search your project
   aoa search handleAuth
   aoa multi auth,session,token
 
-  # Add a knowledge repo for reference
+  # Add reference repos
   aoa repo add flask https://github.com/pallets/flask
-
-  # Search ONLY in flask (isolated)
   aoa repo flask search Blueprint
-  aoa repo flask files *.py
 
-PHILOSOPHY
-  - Symbol angle is default (your code)
-  - Intel angle is isolated reference material
-  - No mixing - intel never pollutes symbol results
-  - Delete intel = clean removal, no cleanup needed
+ARCHITECTURE
+  ~/.aoa/                Global installation
+  .claude/hooks/         Per-project hooks (created by aoa init)
+
+  Install once → enable per-project → search anywhere
 
 EOF
 }
@@ -1008,6 +1252,11 @@ main() {
     shift || true
 
     case "$cmd" in
+        # Project Management (new in v2)
+        init)       cmd_init "$@" ;;
+        remove|rm)  cmd_remove "$@" ;;
+        projects)   cmd_projects "$@" ;;
+
         # Status
         status|s)   cmd_status "$@" ;;
         history|h)  cmd_history "$@" ;;

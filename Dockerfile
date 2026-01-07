@@ -75,7 +75,7 @@ stderr_logfile=/var/log/supervisor/redis-error.log
 [program:index]
 command=python /app/index/indexer.py
 directory=/app/index
-environment=CODEBASE_ROOT="/codebase",REPOS_ROOT="/repos",CONFIG_DIR="/config",CLAUDE_SESSIONS="/claude-sessions",REDIS_URL="redis://localhost:6379/0",PORT="9999"
+environment=CODEBASE_ROOT="",REPOS_ROOT="/repos",CONFIG_DIR="/config",INDEXES_DIR="/indexes",CLAUDE_SESSIONS="/claude-sessions",REDIS_URL="redis://localhost:6379/0",PORT="9999"
 autostart=true
 autorestart=true
 stdout_logfile=/var/log/supervisor/index.log
@@ -110,7 +110,7 @@ stderr_logfile=/var/log/supervisor/gateway-error.log
 EOF
 
 # Create data directories (matching docker-compose volumes)
-RUN mkdir -p /codebase /repos /config /claude-sessions /var/log/aoa
+RUN mkdir -p /codebase /repos /config /claude-sessions /indexes /userhome /var/log/aoa
 
 # Expose only the gateway port
 EXPOSE 8080

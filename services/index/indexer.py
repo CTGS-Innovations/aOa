@@ -383,17 +383,33 @@ class CodebaseIndex:
 # ============================================================================
 
 class IndexManager:
-    """Manages multiple isolated indexes: local project + knowledge repos."""
+    """Manages multiple isolated indexes: local project + knowledge repos.
 
-    def __init__(self, local_root: str, repos_root: str):
-        self.local_root = Path(local_root).resolve()
+    Supports two modes:
+    - Legacy mode: Single local index from CODEBASE_ROOT
+    - Global mode: Multiple project indexes from /config/projects.json
+    """
+
+    def __init__(self, local_root: str, repos_root: str, config_dir: str = None, indexes_dir: str = None):
+        self.local_root = Path(local_root).resolve() if local_root else None
         self.repos_root = Path(repos_root).resolve()
+        self.config_dir = Path(config_dir) if config_dir else None
+        self.indexes_dir = Path(indexes_dir) if indexes_dir else None
+        self.user_home = os.environ.get('USER_HOME', '/home')
 
         # Create repos directory if needed
         self.repos_root.mkdir(parents=True, exist_ok=True)
 
-        # Local index (your project)
-        self.local: CodebaseIndex = CodebaseIndex(local_root, name='local')
+        # Determine mode
+        self.global_mode = self.config_dir is not None and (self.config_dir / 'projects.json').exists()
+
+        # Local index (legacy mode - your project)
+        self.local: Optional[CodebaseIndex] = None
+        if self.local_root and self.local_root.exists():
+            self.local = CodebaseIndex(str(self.local_root), name='local')
+
+        # Project indexes (global mode - multiple projects)
+        self.projects: Dict[str, CodebaseIndex] = {}
 
         # Repo indexes (knowledge repos)
         self.repos: Dict[str, CodebaseIndex] = {}
@@ -403,11 +419,94 @@ class IndexManager:
 
         self.lock = threading.RLock()
 
+    def get_local(self, project_id: str = None) -> Optional[CodebaseIndex]:
+        """Get the appropriate index for a query.
+
+        In global mode, returns the project index if project_id is provided.
+        In legacy mode, returns the single local index.
+        """
+        if project_id and project_id in self.projects:
+            return self.projects[project_id]
+        if self.local:
+            return self.local
+        # Return first project if available
+        if self.projects:
+            return next(iter(self.projects.values()))
+        return None
+
     def init_local(self):
-        """Initialize and scan local index."""
-        print(f"Initializing local index: {self.local_root}")
-        self.local.full_scan()
-        self._start_watcher('local', self.local)
+        """Initialize and scan local index (legacy mode)."""
+        if self.local:
+            print(f"Initializing local index: {self.local_root}")
+            self.local.full_scan()
+            self._start_watcher('local', self.local)
+        elif self.global_mode:
+            print("Global mode: No single local index, using project indexes")
+            self._load_projects()
+
+    def _load_projects(self):
+        """Load all registered projects from config."""
+        if not self.config_dir:
+            return
+
+        projects_file = self.config_dir / 'projects.json'
+        if not projects_file.exists():
+            print("No projects.json found")
+            return
+
+        try:
+            projects = json.loads(projects_file.read_text())
+            print(f"Loading {len(projects)} registered projects...")
+
+            for proj in projects:
+                self._load_project(proj['id'], proj['name'], proj['path'])
+        except Exception as e:
+            print(f"Error loading projects: {e}")
+
+    def _load_project(self, project_id: str, name: str, path: str) -> Optional[CodebaseIndex]:
+        """Load or create index for a project."""
+        # Convert path to container path (user's home is mounted at /userhome)
+        container_path = path.replace(self.user_home, '/userhome')
+
+        if not Path(container_path).exists():
+            print(f"  Project path not accessible: {path}")
+            return None
+
+        with self.lock:
+            if project_id in self.projects:
+                return self.projects[project_id]
+
+            print(f"  Loading project: {name} ({project_id})")
+            idx = CodebaseIndex(container_path, name=name)
+            idx.full_scan()
+            self.projects[project_id] = idx
+            self._start_watcher(f"project:{project_id}", idx)
+            print(f"    -> {len(idx.files)} files indexed")
+            return idx
+
+    def register_project(self, project_id: str, name: str, path: str) -> Tuple[bool, str, int]:
+        """Register and index a new project."""
+        try:
+            idx = self._load_project(project_id, name, path)
+            if idx:
+                return True, f"Project '{name}' registered", len(idx.files)
+            else:
+                return False, f"Could not access project path: {path}", 0
+        except Exception as e:
+            return False, f"Error registering project: {e}", 0
+
+    def unregister_project(self, project_id: str) -> Tuple[bool, str]:
+        """Unregister a project and remove its index."""
+        with self.lock:
+            # Stop watcher
+            self._stop_watcher(f"project:{project_id}")
+
+            # Remove from index
+            if project_id in self.projects:
+                del self.projects[project_id]
+                return True, f"Project unregistered"
+            else:
+                return False, f"Project not found"
 
     def init_repos(self):
         """Initialize indexes for existing repos."""
@@ -684,12 +783,18 @@ def symbol_search():
     q = request.args.get('q', '')
     mode = request.args.get('mode', 'recent')
     limit = int(request.args.get('limit', 20))
+    project = request.args.get('project')  # Optional project ID
 
-    results = manager.get_local().search(q, mode, limit)
+    idx = manager.get_local(project)
+    if not idx:
+        return jsonify({'error': 'No index available', 'results': [], 'ms': 0}), 404
+
+    results = idx.search(q, mode, limit)
 
     return jsonify({
         'results': results,
-        'index': 'local',
+        'index': idx.name,
+        'project': project,
         'ms': (time.time() - start) * 1000
     })
 
@@ -703,18 +808,78 @@ def multi_search():
         terms = q.split() if q else []
         mode = request.args.get('mode', 'recent')
         limit = int(request.args.get('limit', 20))
+        project = request.args.get('project')
     else:
         data = request.json
         terms = data.get('terms', [])
         mode = data.get('mode', 'recent')
         limit = int(data.get('limit', 20))
+        project = data.get('project')
 
-    results = manager.get_local().search_multi(terms, mode, limit)
+    idx = manager.get_local(project)
+    if not idx:
+        return jsonify({'error': 'No index available', 'results': [], 'ms': 0}), 404
+
+    results = idx.search_multi(terms, mode, limit)
 
     return jsonify({
         'results': results,
-        'index': 'local',
+        'index': idx.name,
+        'project': project,
         'ms': (time.time() - start) * 1000
+    })
+
+
+# ============================================================================
+# Project Management Endpoints (Global Mode)
+# ============================================================================
+
+@app.route('/project/register', methods=['POST'])
+def register_project():
+    """Register a new project for indexing."""
+    data = request.json
+    project_id = data.get('id')
+    name = data.get('name')
+    path = data.get('path')
+
+    if not all([project_id, name, path]):
+        return jsonify({'success': False, 'error': 'Missing required fields: id, name, path'}), 400
+
+    success, message, files = manager.register_project(project_id, name, path)
+
+    return jsonify({
+        'success': success,
+        'message': message,
+        'files': files
+    })
+
+
+@app.route('/project/<project_id>', methods=['DELETE'])
+def unregister_project(project_id):
+    """Unregister a project and remove its index."""
+    success, message = manager.unregister_project(project_id)
+
+    return jsonify({
+        'success': success,
+        'message': message
+    })
+
+
+@app.route('/projects')
+def list_projects():
+    """List all registered projects."""
+    projects = []
+    for pid, idx in manager.projects.items():
+        projects.append({
+            'id': pid,
+            'name': idx.name,
+            'files': len(idx.files),
+            'symbols': len(idx.inverted_index)
+        })
+
+    return jsonify({
+        'projects': projects,
+        'global_mode': manager.global_mode
     })
 
 @app.route('/files')
@@ -2961,12 +3126,21 @@ def get_memory():
 def main():
     global manager, intent_index, scorer, tuner
 
-    codebase_root = os.environ.get('CODEBASE_ROOT', '.')
+    codebase_root = os.environ.get('CODEBASE_ROOT', '')
     repos_root = os.environ.get('REPOS_ROOT', './repos')
+    config_dir = os.environ.get('CONFIG_DIR', '/config')
+    indexes_dir = os.environ.get('INDEXES_DIR', '/indexes')
     port = int(os.environ.get('PORT', 9999))
+
+    # Detect global mode
+    global_mode = not codebase_root and Path(config_dir).exists()
 
     print("=" * 60)
     print("aOa Index Service - Multi-Index Architecture")
+    if global_mode:
+        print("Mode: GLOBAL (multi-project)")
+    else:
+        print("Mode: LEGACY (single project)")
     print("=" * 60)
 
     # Initialize intent index
@@ -2987,19 +3161,32 @@ def main():
             tuner = None
     else:
         print("Ranking module not available")
-    print(f"Local codebase: {codebase_root}")
+
+    if global_mode:
+        print(f"Config directory: {config_dir}")
+        print(f"Indexes directory: {indexes_dir}")
+    else:
+        print(f"Local codebase: {codebase_root}")
     print(f"Repos directory: {repos_root}")
     print()
 
     # Create index manager
-    manager = IndexManager(codebase_root, repos_root)
+    manager = IndexManager(
+        codebase_root if codebase_root else None,
+        repos_root,
+        config_dir if global_mode else None,
+        indexes_dir if global_mode else None
+    )
 
     # Initialize indexes
     manager.init_local()
     manager.init_repos()
 
     print()
-    print(f"Local: {len(manager.local.files)} files, {len(manager.local.inverted_index)} symbols")
+    if manager.local:
+        print(f"Local: {len(manager.local.files)} files, {len(manager.local.inverted_index)} symbols")
+    if manager.projects:
+        print(f"Projects: {len(manager.projects)} project indexes loaded")
     print(f"Repos: {len(manager.repos)} knowledge repos loaded")
     print()
 
