@@ -148,11 +148,21 @@ if [[ "$1" == "--uninstall" ]]; then
     fi
 
     # 2. Remove Docker images (both unified 'aoa' and compose 'aoa-*')
-    if docker images --format '{{.Repository}}' 2>/dev/null | grep -qE "^aoa([-_]|$)"; then
-        echo -n "  Removing images............... "
-        docker images --format '{{.Repository}}:{{.Tag}}' | grep -E "^aoa([-_]|$)" | xargs -r docker rmi > /dev/null 2>&1 || true
+    echo -n "  Removing images............... "
+    # Get all aOa images (including dangling/intermediate)
+    AOA_IMAGE_IDS=$(docker images --format '{{.Repository}}:{{.Tag}} {{.ID}}' 2>/dev/null | \
+                    grep -E "^aoa([-_]|$)" | awk '{print $2}' || true)
+
+    if [ -n "$AOA_IMAGE_IDS" ]; then
+        # Force remove all images (even if containers exist)
+        echo "$AOA_IMAGE_IDS" | xargs -r docker rmi -f > /dev/null 2>&1 || true
         echo -e "${GREEN}✓${NC}"
+    else
+        echo -e "${DIM}none${NC}"
     fi
+
+    # Also clean up any dangling aoa images
+    docker image prune -f --filter "label=aoa" > /dev/null 2>&1 || true
 
     # 3. Clean up registered projects (BEFORE removing ~/.aoa/)
     if [ ${#PROJECTS_TO_CLEAN[@]} -gt 0 ]; then
