@@ -1,21 +1,22 @@
+---
+name: aoa-enrich
+description: Batch semantic enrichment for aOa. Use when asked to enrich the codebase, generate semantic tags, or run aoa enrich. Processes files in batches using Haiku to generate tags.
+allowed-tools: Bash, Task
+---
+
 # aOa Enrich - Batch Semantic Enrichment
 
-> **Purpose**: Enrich code outlines with AI-generated semantic tags
-> **Trigger**: `aoa enrich` or "enrich the codebase with aOa"
-
----
+Enrich code outlines with AI-generated semantic tags.
 
 ## Overview
 
-This skill batch-processes files that need semantic enrichment. It:
+This skill batch-processes files that need semantic enrichment:
 1. Queries `/outline/pending` for files needing enrichment
 2. Batches files into groups of 15
 3. Spawns Haiku tasks to generate semantic tags
 4. Marks files enriched via `/outline/enriched`
 
 **Idempotent**: Re-running picks up where you left off.
-
----
 
 ## Execution Steps
 
@@ -64,8 +65,6 @@ After each batch, report:
 - Total progress (e.g., "15/45 files enriched")
 - Any errors encountered
 
----
-
 ## Haiku Prompt Template
 
 When spawning Haiku tasks for tag generation, use this prompt:
@@ -86,15 +85,11 @@ FILES TO ANALYZE:
 [Insert outline data here]
 ```
 
----
-
 ## Error Handling
 
 - **API unreachable**: Report "aOa services not running. Run `aoa health` to check."
 - **File outline fails**: Skip file, continue with batch, report at end
 - **Haiku task fails**: Retry once, then skip batch and continue
-
----
 
 ## Example Session
 
@@ -120,8 +115,6 @@ Marked 15 files as enriched.
 
 Enrichment complete: 45 files processed.
 ```
-
----
 
 ## Quick Commands
 

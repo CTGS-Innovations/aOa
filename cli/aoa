@@ -127,9 +127,13 @@ cmd_init() {
     chmod +x "$project_root/.claude/hooks/"*.py "$project_root/.claude/hooks/"*.sh 2>/dev/null || true
     echo -e "${GREEN}✓${NC}"
 
-    # Copy skills
+    # Copy skills (directory-based structure for Claude Code)
     echo -n "  Installing skills............. "
-    cp "$AOA_HOME/plugin/skills/"*.md "$project_root/.claude/skills/" 2>/dev/null || true
+    for skill_dir in "$AOA_HOME/plugin/skills/"*/; do
+        if [ -d "$skill_dir" ]; then
+            cp -r "$skill_dir" "$project_root/.claude/skills/" 2>/dev/null || true
+        fi
+    done
     echo -e "${GREEN}✓${NC}"
 
     # Copy agents
@@ -313,9 +317,9 @@ cmd_remove() {
     rm -f "$project_root/.claude/hooks/aoa-"* 2>/dev/null || true
     echo -e "${GREEN}✓${NC}"
 
-    # Remove skills
+    # Remove skills (directory-based structure)
     echo -n "  Removing skills............... "
-    rm -f "$project_root/.claude/skills/aoa"* 2>/dev/null || true
+    rm -rf "$project_root/.claude/skills/aoa" "$project_root/.claude/skills/aoa-enrich" 2>/dev/null || true
     echo -e "${GREEN}✓${NC}"
 
     # Remove agents
@@ -785,7 +789,7 @@ cmd_enrich() {
     echo "    3. Spawn Haiku tasks to generate semantic tags"
     echo "    4. Mark files enriched via /outline/enriched"
     echo ""
-    echo -e "${DIM}See: plugin/skills/aoa-enrich.md for full instructions${NC}"
+    echo -e "${DIM}See: plugin/skills/aoa-enrich/SKILL.md for full instructions${NC}"
 }
 
 # =============================================================================

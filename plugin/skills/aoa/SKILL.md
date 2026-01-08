@@ -1,19 +1,12 @@
-# aOa Search - Skill Reference
+---
+name: aoa
+description: Fast codebase search using aOa. Use instead of Grep/Glob for finding code, symbols, functions, or files. 10-50x faster than built-in search tools.
+allowed-tools: Bash
+---
+
+# aOa Search
 
 > **Use aOa instead of Grep/Glob.** It's faster, ranked, and context-aware.
-
----
-
-## ⚠️ IMPORTANT: Command Syntax
-
-**aOa commands use SPACES, not colons:**
-
-✅ **Correct:** `aoa search "term"`
-❌ **Wrong:** `aoa search:"term"`
-
-The permissions in `settings.local.json` like `Bash(aoa search:*)` use colon for glob pattern matching, but actual commands use standard bash syntax with spaces.
-
----
 
 ## Quick Reference
 
@@ -25,8 +18,6 @@ The permissions in `settings.local.json` like `Bash(aoa search:*)` use colon for
 | `aoa pattern '<json>'` | Complex regex patterns | <50ms |
 | `aoa changes [time]` | Recently modified files | <10ms |
 | `aoa intent recent` | See current work patterns | <50ms |
-
----
 
 ## Commands
 
@@ -43,8 +34,6 @@ aoa search "error handling"
 
 **Use instead of:** `Grep`, `Glob`, `find`
 
----
-
 ### 2. Multi-Term Search: `aoa multi <t1,t2,...>`
 
 Search for multiple related terms at once, get ranked results.
@@ -55,8 +44,6 @@ aoa multi error,exception,catch
 ```
 
 **Use instead of:** Multiple Grep calls
-
----
 
 ### 3. Context Search: `aoa context "<intent>"`
 
@@ -72,8 +59,6 @@ aoa context "update the login flow"
 
 **Best for:** Starting a new task, finding where to look first.
 
----
-
 ### 4. Pattern Search: `aoa pattern '<json>'`
 
 Complex multi-pattern regex search for sophisticated queries.
@@ -88,8 +73,6 @@ aoa pattern '{"patterns": ["import.*redis"], "since": "7d"}'
 - `since`: Only files modified recently (e.g., "7d", "1h")
 - `repo`: Search in specific knowledge repo
 
----
-
 ### 5. Recent Changes: `aoa changes [time]`
 
 Find files modified recently.
@@ -99,8 +82,6 @@ aoa changes        # Last hour
 aoa changes 5m     # Last 5 minutes
 aoa changes 1d     # Last day
 ```
-
----
 
 ### 6. Intent Tracking: `aoa intent recent`
 
@@ -112,8 +93,6 @@ aoa intent recent 30m   # Last 30 minutes
 aoa intent tags         # All semantic tags
 ```
 
----
-
 ## Decision Tree
 
 1. **Know what you're looking for?** → `aoa search <term>`
@@ -123,17 +102,13 @@ aoa intent tags         # All semantic tags
 5. **What changed recently?** → `aoa changes`
 6. **What's being worked on?** → `aoa intent recent`
 
----
-
-## Efficiency Comparison
+## Efficiency
 
 | Approach | Tool Calls | Tokens | Time |
 |----------|------------|--------|------|
 | Grep + Read loops | 7 | 8,500 | 2.6s |
 | aoa search | 1-2 | 1,150 | 54ms |
 | **Savings** | **71%** | **86%** | **98%** |
-
----
 
 ## Tips
 
