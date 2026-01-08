@@ -543,6 +543,7 @@ cmd_multi() {
 
 cmd_changes() {
     local since="${1:-300}"
+    local project_id=$(get_project_id)
 
     # Parse time strings
     if [[ "$since" =~ ^([0-9]+)([smh])$ ]]; then
@@ -555,7 +556,7 @@ cmd_changes() {
         esac
     fi
 
-    local result=$(curl -s "${INDEX_URL}/changes?since=${since}")
+    local result=$(curl -s "${INDEX_URL}/changes?since=${since}&project_id=${project_id}")
 
     echo -e "${GREEN}Added:${NC}"
     echo "$result" | jq -r '.added[]' 2>/dev/null || echo "  (none)"
@@ -945,6 +946,7 @@ cmd_intent() {
 
 cmd_intent_recent() {
     local since="${1:-3600}"
+    local project_id=$(get_project_id)
 
     # Parse time strings
     if [[ "$since" =~ ^([0-9]+)([smh])$ ]]; then
@@ -957,7 +959,7 @@ cmd_intent_recent() {
         esac
     fi
 
-    local result=$(curl -s "${INDEX_URL}/intent/recent?since=${since}&limit=30")
+    local result=$(curl -s "${INDEX_URL}/intent/recent?since=${since}&limit=30&project_id=${project_id}")
 
     local stats=$(echo "$result" | jq -r '.stats')
     local total=$(echo "$stats" | jq -r '.total_records')
@@ -973,7 +975,8 @@ cmd_intent_recent() {
 }
 
 cmd_intent_tags() {
-    local result=$(curl -s "${INDEX_URL}/intent/tags")
+    local project_id=$(get_project_id)
+    local result=$(curl -s "${INDEX_URL}/intent/tags?project_id=${project_id}")
 
     echo -e "${BOLD}Intent Tags${NC}"
     echo ""
@@ -983,6 +986,7 @@ cmd_intent_tags() {
 
 cmd_intent_files() {
     local tag="$1"
+    local project_id=$(get_project_id)
 
     if [ -z "$tag" ]; then
         echo "Usage: aoa intent files <tag>"
@@ -990,7 +994,7 @@ cmd_intent_files() {
         return 1
     fi
 
-    local result=$(curl -s "${INDEX_URL}/intent/files?tag=${tag}")
+    local result=$(curl -s "${INDEX_URL}/intent/files?tag=${tag}&project_id=${project_id}")
 
     local actual_tag=$(echo "$result" | jq -r '.tag')
     echo -e "${BOLD}Files for ${actual_tag}${NC}"
@@ -1001,13 +1005,14 @@ cmd_intent_files() {
 
 cmd_intent_file() {
     local path="$1"
+    local project_id=$(get_project_id)
 
     if [ -z "$path" ]; then
         echo "Usage: aoa intent file <path>"
         return 1
     fi
 
-    local result=$(curl -s "${INDEX_URL}/intent/file?path=${path}")
+    local result=$(curl -s "${INDEX_URL}/intent/file?path=${path}&project_id=${project_id}")
 
     echo -e "${BOLD}Tags for ${path}${NC}"
     echo ""
@@ -1016,7 +1021,8 @@ cmd_intent_file() {
 }
 
 cmd_intent_stats() {
-    local result=$(curl -s "${INDEX_URL}/intent/stats")
+    local project_id=$(get_project_id)
+    local result=$(curl -s "${INDEX_URL}/intent/stats?project_id=${project_id}")
 
     echo -e "${BOLD}Intent Index Stats${NC}"
     echo ""
@@ -1281,7 +1287,8 @@ cmd_baseline() {
 }
 
 cmd_metrics() {
-    local metrics=$(curl -s --connect-timeout 2 "${INDEX_URL}/metrics" 2>/dev/null)
+    local project_id=$(get_project_id)
+    local metrics=$(curl -s --connect-timeout 2 "${INDEX_URL}/metrics?project_id=${project_id}" 2>/dev/null)
 
     if [ -z "$metrics" ] || echo "$metrics" | jq -e '.error' > /dev/null 2>&1; then
         echo -e "${RED}Metrics not available${NC}"
