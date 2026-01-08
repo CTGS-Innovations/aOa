@@ -1679,6 +1679,7 @@ def check_prediction_hit():
     data = request.json
     session_id = data.get('session_id', 'unknown')
     file_path = data.get('file', '')
+    project_id = data.get('project_id', '')  # UUID for per-project metrics
 
     if not file_path:
         return jsonify({'hit': False})
@@ -1694,7 +1695,7 @@ def check_prediction_hit():
             if pred_data:
                 prediction = json.loads(pred_data)
                 if file_path in prediction.get('predicted_files', []):
-                    # Record the hit (legacy counter)
+                    # Record the hit - global (system monitoring)
                     scorer.redis.client.incr('aoa:metrics:hits')
 
                     # Record savings (estimate: ~1500 tokens, ~50ms per hit)
@@ -1703,6 +1704,12 @@ def check_prediction_hit():
                     TIME_SAVED_MS_PER_HIT = 50
                     scorer.redis.client.incrby('aoa:savings:tokens', TOKENS_SAVED_PER_HIT)
                     scorer.redis.client.incrby('aoa:savings:time_ms', TIME_SAVED_MS_PER_HIT)
+
+                    # Record per-project savings (for status line display)
+                    if project_id:
+                        scorer.redis.client.incr(f'aoa:{project_id}:metrics:hits')
+                        scorer.redis.client.incrby(f'aoa:{project_id}:savings:tokens', TOKENS_SAVED_PER_HIT)
+                        scorer.redis.client.incrby(f'aoa:{project_id}:savings:time_ms', TIME_SAVED_MS_PER_HIT)
 
                     # Phase 4: Mark the prediction batch as a hit in rolling data
                     rolling_data_key = f"aoa:rolling:data:{pred_key_str}"
@@ -1719,8 +1726,10 @@ def check_prediction_hit():
                         'confidence': prediction.get('confidence', 0)
                     })
 
-        # No hit - record miss (legacy counter)
+        # No hit - record miss (global)
         scorer.redis.client.incr('aoa:metrics:misses')
+        if project_id:
+            scorer.redis.client.incr(f'aoa:{project_id}:metrics:misses')
 
         # Phase 4: Mark any unevaluated predictions as misses after a file read
         # (This is conservative - we only mark miss if we checked and didn't find a hit)
@@ -1742,10 +1751,17 @@ def prediction_stats():
     if not RANKING_AVAILABLE or scorer is None:
         return jsonify({'error': 'Redis not available'}), 503
 
+    project_id = request.args.get('project_id')
+
     try:
-        # Legacy cumulative counters
-        hits = int(scorer.redis.client.get('aoa:metrics:hits') or 0)
-        misses = int(scorer.redis.client.get('aoa:metrics:misses') or 0)
+        # Legacy cumulative counters (per-project if project_id provided)
+        if project_id:
+            hits = int(scorer.redis.client.get(f'aoa:{project_id}:metrics:hits') or 0)
+            misses = int(scorer.redis.client.get(f'aoa:{project_id}:metrics:misses') or 0)
+        else:
+            hits = int(scorer.redis.client.get('aoa:metrics:hits') or 0)
+            misses = int(scorer.redis.client.get('aoa:metrics:misses') or 0)
+
         total = hits + misses
         hit_rate = (hits / total * 100) if total > 0 else 0
 
@@ -1759,7 +1775,8 @@ def prediction_stats():
             'total': total,
             'hit_rate': round(hit_rate, 1),
             # Phase 4 rolling stats
-            'rolling': rolling_stats
+            'rolling': rolling_stats,
+            'project_id': project_id
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -2115,15 +2132,20 @@ def get_metrics():
                 'total_samples': sum(a['samples'] for a in all_stats),
             }
 
-        # Legacy cumulative stats
-        hits = int(scorer.redis.client.get('aoa:metrics:hits') or 0)
-        misses = int(scorer.redis.client.get('aoa:metrics:misses') or 0)
+        # Legacy cumulative stats (per-project if project_id provided, else global)
+        if project_id:
+            hits = int(scorer.redis.client.get(f'aoa:{project_id}:metrics:hits') or 0)
+            misses = int(scorer.redis.client.get(f'aoa:{project_id}:metrics:misses') or 0)
+            tokens_saved = int(scorer.redis.client.get(f'aoa:{project_id}:savings:tokens') or 0)
+            time_saved_ms = int(scorer.redis.client.get(f'aoa:{project_id}:savings:time_ms') or 0)
+        else:
+            hits = int(scorer.redis.client.get('aoa:metrics:hits') or 0)
+            misses = int(scorer.redis.client.get('aoa:metrics:misses') or 0)
+            tokens_saved = int(scorer.redis.client.get('aoa:savings:tokens') or 0)
+            time_saved_ms = int(scorer.redis.client.get('aoa:savings:time_ms') or 0)
+
         total = hits + misses
         legacy_rate = (hits / total * 100) if total > 0 else 0
-
-        # Savings stats
-        tokens_saved = int(scorer.redis.client.get('aoa:savings:tokens') or 0)
-        time_saved_ms = int(scorer.redis.client.get('aoa:savings:time_ms') or 0)
 
         # Calculate main metrics
         hit_at_5 = rolling.get('hit_at_5', 0.0)
