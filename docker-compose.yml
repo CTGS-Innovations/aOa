@@ -3,12 +3,12 @@
 # Docker Compose Configuration
 # =============================================================================
 #
-# IMPORTANT: Mount paths are configured in .aoa/.env
+# IMPORTANT: Configuration is in .env (same directory)
 #   - PROJECTS_ROOT: Where your projects live (mounted to /userhome)
-#   - CLAUDE_SESSIONS: Claude history location
 #   - GATEWAY_PORT: Service port (default 8080)
+#   - Claude sessions auto-derived from PROJECTS_ROOT/.claude
 #
-# After editing .aoa/.env, restart with: docker-compose down && docker-compose up -d
+# After editing .env, restart with: docker-compose down && docker-compose up -d
 #
 # Network Architecture:
 #   - Internal network (NO internet) for all services except proxy
@@ -51,17 +51,16 @@ services:
       dockerfile: index/Dockerfile
     volumes:
       - ${CODEBASE_PATH:-.}:/codebase:ro
-      - ./repos:/repos:ro
-      - ./.aoa:/config:rw
-      - ${CLAUDE_SESSIONS:-~/.claude}:/claude-sessions:ro
-      - ${PROJECTS_ROOT}:/userhome:ro     # User projects (from .aoa/.env)
+      - ./data/repos:/repos:ro
+      - ./data:/config:rw
+      - ${PROJECTS_ROOT}:/userhome:ro     # User projects (from .env)
     environment:
       - CODEBASE_ROOT=/codebase
       - REPOS_ROOT=/repos
       - CONFIG_DIR=/config
       - REDIS_URL=redis://redis:6379/0
-      - CLAUDE_SESSIONS=/claude-sessions
-      - USER_HOME=${PROJECTS_ROOT}        # For path translation (from .aoa/.env)
+      - CLAUDE_SESSIONS=/userhome/.claude  # Derived from PROJECTS_ROOT
+      - USER_HOME=${PROJECTS_ROOT}         # For path translation (from .env)
     networks:
       - aoa-internal
     depends_on:
@@ -76,10 +75,10 @@ services:
       context: ./services/status
       dockerfile: Dockerfile
     volumes:
-      - ~/.claude:/claude-sessions:ro
+      - ${PROJECTS_ROOT}:/userhome:ro     # Access Claude sessions via /userhome/.claude
     environment:
       - REDIS_URL=redis://redis:6379/0
-      - CLAUDE_SESSIONS=/claude-sessions
+      - CLAUDE_SESSIONS=/userhome/.claude  # Derived from PROJECTS_ROOT
       - INDEX_URL=http://index:9999
     networks:
       - aoa-internal

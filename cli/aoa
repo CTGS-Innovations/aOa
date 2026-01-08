@@ -1284,22 +1284,20 @@ cmd_info() {
     # Read from .env file if it exists (root directory, where docker-compose reads it)
     local env_file="${AOA_HOME}/.env"
     local projects_root="${HOME}"
-    local claude_sessions="${HOME}/.claude"
     local gateway_port="8080"
 
     if [ -f "$env_file" ]; then
         projects_root=$(grep "^PROJECTS_ROOT=" "$env_file" 2>/dev/null | cut -d'=' -f2 || echo "$HOME")
-        claude_sessions=$(grep "^CLAUDE_SESSIONS=" "$env_file" 2>/dev/null | cut -d'=' -f2 || echo "$HOME/.claude")
         gateway_port=$(grep "^GATEWAY_PORT=" "$env_file" 2>/dev/null | cut -d'=' -f2 || echo "8080")
     fi
 
     # Show Docker configuration from .env
     echo -e "${BOLD}Docker Configuration:${NC} ${DIM}(from .env)${NC}"
     echo -e "  PROJECTS_ROOT:   ${projects_root} → /userhome"
-    echo -e "  CLAUDE_SESSIONS: ${claude_sessions}"
     echo -e "  GATEWAY_PORT:    ${gateway_port}"
+    echo -e "  Claude sessions: ${projects_root}/.claude ${DIM}(auto-derived)${NC}"
     echo ""
-    echo -e "  ${DIM}Edit .env in aOa root to change paths, then restart Docker${NC}"
+    echo -e "  ${DIM}Edit .env in aOa root to change, then restart Docker${NC}"
     echo ""
 
     # Show registered projects
