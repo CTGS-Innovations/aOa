@@ -556,6 +556,10 @@ cmd_multi() {
 cmd_changes() {
     local since="${1:-300}"
     local project_id=$(get_project_id)
+    local project_param=""
+    if [ -n "$project_id" ]; then
+        project_param="&project=${project_id}"
+    fi
 
     # Parse time strings
     if [[ "$since" =~ ^([0-9]+)([smh])$ ]]; then
@@ -568,7 +572,7 @@ cmd_changes() {
         esac
     fi
 
-    local result=$(curl -s "${INDEX_URL}/changes?since=${since}&project_id=${project_id}")
+    local result=$(curl -s "${INDEX_URL}/changes?since=${since}${project_param}")
 
     echo -e "${GREEN}Added:${NC}"
     echo "$result" | jq -r '.added[]' 2>/dev/null || echo "  (none)"
@@ -585,7 +589,13 @@ cmd_files() {
     local mode="${2:-recent}"
     local limit="${3:-30}"
 
-    local url="${INDEX_URL}/files?mode=${mode}&limit=${limit}"
+    local project_id=$(get_project_id)
+    local project_param=""
+    if [ -n "$project_id" ]; then
+        project_param="&project=${project_id}"
+    fi
+
+    local url="${INDEX_URL}/files?mode=${mode}&limit=${limit}${project_param}"
     [ -n "$pattern" ] && url="${url}&match=${pattern}"
 
     curl -s "$url" | jq -r '.results[] | "\(.path) (\(.language))"'

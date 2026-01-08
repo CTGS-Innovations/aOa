@@ -1329,12 +1329,18 @@ def files_search():
     pattern = request.args.get('match')
     mode = request.args.get('mode', 'recent')
     limit = int(request.args.get('limit', 50))
+    project = request.args.get('project')
 
-    results = manager.get_local().list_files(pattern, mode, limit)
+    idx = manager.get_local(project)
+    if not idx:
+        return jsonify({'error': 'No index available', 'results': [], 'ms': 0}), 404
+
+    results = idx.list_files(pattern, mode, limit)
 
     return jsonify({
         'results': results,
-        'index': 'local',
+        'index': idx.name,
+        'project': project,
         'ms': (time.time() - start) * 1000
     })
 
@@ -1342,25 +1348,30 @@ def files_search():
 def changes():
     start = time.time()
     since_param = request.args.get('since', '300')
-    local = manager.get_local()
+    project = request.args.get('project')
+
+    idx = manager.get_local(project)
+    if not idx:
+        return jsonify({'error': 'No index available', 'added': [], 'modified': [], 'deleted': [], 'ms': 0}), 404
 
     if since_param == 'session':
-        since = local.session_start
+        since = idx.session_start
     else:
         since = int(time.time()) - int(since_param)
 
-    changes = local.changes_since(since)
+    changes_list = idx.changes_since(since)
 
-    added = [c['file'] for c in changes if c['change_type'] == 'added']
+    added = [c['file'] for c in changes_list if c['change_type'] == 'added']
     modified = [{'file': c['file'], 'lines_changed': c.get('lines_changed', [])}
-                for c in changes if c['change_type'] == 'modified']
-    deleted = [c['file'] for c in changes if c['change_type'] == 'deleted']
+                for c in changes_list if c['change_type'] == 'modified']
+    deleted = [c['file'] for c in changes_list if c['change_type'] == 'deleted']
 
     return jsonify({
         'added': added,
         'modified': modified,
         'deleted': deleted,
-        'index': 'local',
+        'index': idx.name,
+        'project': project,
         'ms': (time.time() - start) * 1000
     })
 
