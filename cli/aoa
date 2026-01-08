@@ -317,9 +317,9 @@ cmd_remove() {
     rm -f "$project_root/.claude/hooks/aoa-"* 2>/dev/null || true
     echo -e "${GREEN}✓${NC}"
 
-    # Remove skills (directory-based structure)
+    # Remove skills (all aoa* folders and files)
     echo -n "  Removing skills............... "
-    rm -rf "$project_root/.claude/skills/aoa" "$project_root/.claude/skills/aoa-enrich" 2>/dev/null || true
+    rm -rf "$project_root/.claude/skills/aoa"* 2>/dev/null || true
     echo -e "${GREEN}✓${NC}"
 
     # Remove agents

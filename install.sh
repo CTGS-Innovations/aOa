@@ -179,10 +179,10 @@ if [[ "$1" == "--uninstall" ]]; then
                 # Remove aOa hooks (aoa-* prefix)
                 rm -f "$proj_path/.claude/hooks/aoa-"* 2>/dev/null
 
-                # Remove aOa skills
-                rm -f "$proj_path/.claude/skills/aoa.md" 2>/dev/null
+                # Remove aOa skills (folders and files starting with aoa)
+                rm -rf "$proj_path/.claude/skills/aoa"* 2>/dev/null
 
-                # Remove aOa agents
+                # Remove aOa agents (aoa-* prefix)
                 rm -f "$proj_path/.claude/agents/aoa-"* 2>/dev/null
 
                 # Remove .aoa-config
