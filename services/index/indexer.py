@@ -82,6 +82,10 @@ class Location:
     col: int
     symbol_type: str
     mtime: int
+    # Symbol-level metadata for semantic compression tags
+    symbol: Optional[str] = None      # Symbol/function name (e.g., "handleAuth")
+    symbol_kind: Optional[str] = None # Kind (e.g., "function", "class")
+    end_line: Optional[int] = None    # Where the symbol ends
 
 @dataclass
 class FileMeta:
@@ -1154,14 +1158,45 @@ def get_outline():
 
 @app.route('/outline/enriched', methods=['POST'])
 def mark_enriched():
-    """Mark a file as enriched with AI-generated tags."""
+    """Store semantic compression tags at symbol level in the inverted index."""
     data = request.json
     file_path = data.get('file')
     project = data.get('project')
-    tags_count = data.get('tags_count', 0)
+    symbols = data.get('symbols', [])  # List of {name, kind, line, end_line, tags}
 
     if not file_path:
         return jsonify({'success': False, 'error': 'Missing file parameter'}), 400
+
+    idx = manager.get_local(project)
+    if not idx:
+        return jsonify({'success': False, 'error': 'No index available'}), 404
+
+    # Index symbol-level tags
+    tags_indexed = 0
+    mtime = int(time.time())
+
+    with idx.lock:
+        for sym in symbols:
+            sym_name = sym.get('name', '')
+            sym_kind = sym.get('kind', 'unknown')
+            line = sym.get('line', 0)
+            end_line = sym.get('end_line', line)
+            tags = sym.get('tags', [])
+
+            for tag in tags:
+                # Create location with full symbol metadata
+                loc = Location(
+                    file=file_path,
+                    line=line,
+                    col=0,
+                    symbol_type='tag',
+                    mtime=mtime,
+                    symbol=sym_name,
+                    symbol_kind=sym_kind,
+                    end_line=end_line
+                )
+                idx.inverted_index[tag].append(loc)
+                tags_indexed += 1
 
     # Store enrichment timestamp in Redis
     try:
@@ -1169,12 +1204,19 @@ def mark_enriched():
         r = redis.from_url(os.environ.get('REDIS_URL', 'redis://localhost:6379/0'))
         key = f"enriched:{project or 'default'}:{file_path}"
         r.hset(key, mapping={
-            'enriched_at': int(time.time()),
-            'tags_count': tags_count
+            'enriched_at': mtime,
+            'tags_count': tags_indexed
         })
-        return jsonify({'success': True, 'file': file_path, 'enriched_at': int(time.time())})
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
+    except Exception:
+        pass  # Redis is optional for tracking
+
+    return jsonify({
+        'success': True,
+        'file': file_path,
+        'tags_indexed': tags_indexed,
+        'symbols_processed': len(symbols),
+        'enriched_at': mtime
+    })
 
 
 @app.route('/outline/pending')

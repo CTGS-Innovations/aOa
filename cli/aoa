@@ -492,6 +492,9 @@ cmd_search() {
         return 1
     fi
 
+    # URL-encode the query (handles #, spaces, etc.)
+    local encoded_query=$(printf '%s' "$query" | jq -sRr @uri)
+
     # Get current project context
     local project_id=$(get_project_id)
     local project_param=""
@@ -499,15 +502,20 @@ cmd_search() {
         project_param="&project=${project_id}"
     fi
 
-    local result=$(curl -s "${INDEX_URL}/symbol?q=${query}&mode=${mode}&limit=${limit}${project_param}")
+    local result=$(curl -s "${INDEX_URL}/symbol?q=${encoded_query}&mode=${mode}&limit=${limit}${project_param}")
     local ms=$(echo "$result" | jq -r '.ms // 0')
     local count=$(echo "$result" | jq -r '.results | length')
 
     # Single punchy line: ⚡ 7 hits │ 0.12ms
     printf "${CYAN}${BOLD}⚡ %s hits${NC} ${DIM}│${NC} ${GREEN}%.2fms${NC}\n" "$count" "$ms"
 
-    # Results
-    echo "$result" | jq -r '.results[] | "  \(.file):\(.line)"' 2>/dev/null
+    # Results - show symbol metadata when available (for semantic compression tags)
+    echo "$result" | jq -r '.results[] |
+      if .symbol then
+        "  \(.file):\(.line) \(.symbol_kind // ""):\(.symbol) [\(.line)-\(.end_line // .line)]"
+      else
+        "  \(.file):\(.line)"
+      end' 2>/dev/null
 }
 
 cmd_multi() {
@@ -628,22 +636,25 @@ cmd_outline() {
         local up_to_date=$(echo "$result" | jq -r '.up_to_date_count // 0')
         local total=$(echo "$result" | jq -r '.total_files // 0')
 
-        echo -e "${CYAN}${BOLD}⚡ aOa Enrichment Status${NC}"
+        echo -e "${CYAN}${BOLD}⚡ aOa Outline Status${NC}"
         echo ""
-        echo -e "  Pending:    ${YELLOW}${pending_count}${NC}"
-        echo -e "  Up to date: ${GREEN}${up_to_date}${NC}"
-        echo -e "  Total:      ${total}"
+        echo -e "  Pending:  ${YELLOW}${pending_count}${NC} need tags"
+        echo -e "  Tagged:   ${GREEN}${up_to_date}${NC}"
+        echo -e "  Total:    ${total}"
 
         if [ "$pending_count" -gt 0 ]; then
             echo ""
-            echo -e "${DIM}Run 'aoa enrich' in Claude Code to process pending files.${NC}"
+            echo -e "${DIM}In Claude Code, say: \"tag the codebase\"${NC}"
+        else
+            echo ""
+            echo -e "${DIM}Search tags: aoa search \"#validation\"${NC}"
         fi
         return 0
     fi
 
-    # Handle --enrich-all (batch mode)
+    # Handle --enrich-all (batch mode - now "deep outline")
     if $enrich_all; then
-        echo -e "${CYAN}${BOLD}⚡ aOa Outline - Batch Enrich${NC}"
+        echo -e "${CYAN}${BOLD}⚡ aOa Outline - Deep Tagging${NC}"
         echo ""
 
         # Get current project context
@@ -663,17 +674,19 @@ cmd_outline() {
 
         printf "Scanned project in ${GREEN}%.1fms${NC}\n" "$ms"
         echo ""
-        echo -e "  Total files:      ${BOLD}${total}${NC}"
-        echo -e "  Already enriched: ${GREEN}${up_to_date}${NC} ${DIM}(up to date)${NC}"
-        echo -e "  Need enrichment:  ${YELLOW}${pending_count}${NC}"
+        echo -e "  Total files:   ${BOLD}${total}${NC}"
+        echo -e "  Tagged:        ${GREEN}${up_to_date}${NC}"
+        echo -e "  Need tags:     ${YELLOW}${pending_count}${NC}"
         echo ""
 
         if [ "$pending_count" -eq 0 ]; then
-            echo -e "${GREEN}All files are up to date!${NC}"
+            echo -e "${GREEN}All files are tagged!${NC}"
+            echo ""
+            echo -e "${DIM}Search: aoa search \"#validation\"${NC}"
             return 0
         fi
 
-        echo -e "${BOLD}Files to enrich:${NC}"
+        echo -e "${BOLD}Files needing tags:${NC}"
         echo "$result" | jq -r '.pending[:10][] | "  \(.file) (\(.reason))"' 2>/dev/null
 
         if [ "$pending_count" -gt 10 ]; then
@@ -681,27 +694,26 @@ cmd_outline() {
         fi
 
         echo ""
-        echo -e "${BLUE}─── Enrichment ───${NC}"
+        echo -e "${BOLD}To tag these files:${NC}"
         echo ""
-        echo -e "${DIM}Claude should spawn Haiku tasks for each pending file.${NC}"
-        echo -e "${DIM}After enriching, mark complete via: POST /outline/enriched${NC}"
+        echo "  In Claude Code, say: \"tag the codebase\""
         echo ""
-        echo "ENRICH_BATCH_REQUEST:"
-        echo "$result" | jq -c '{pending: .pending, project: "'"${project_id}"'"}'
         return 0
     fi
 
     if [ -z "$file" ]; then
-        echo "Usage: aoa outline <file> [--enrich]"
-        echo "       aoa outline --enrich-all"
+        echo "Usage: aoa outline <file>"
+        echo "       aoa outline --pending"
         echo ""
         echo "Options:"
-        echo "  --enrich      Add AI-generated intent tags (requires Claude Code)"
-        echo "  --enrich-all  Batch enrich all project files (requires Claude Code)"
+        echo "  --pending     Show files needing semantic tags"
+        echo "  --enrich-all  Show detailed tagging status"
+        echo ""
+        echo "To add semantic tags, say in Claude Code: \"tag the codebase\""
         echo ""
         echo "Examples:"
         echo "  aoa outline src/index.ts"
-        echo "  aoa outline services/auth.py --enrich"
+        echo "  aoa outline --pending"
         return 1
     fi
 
@@ -738,24 +750,24 @@ cmd_outline() {
     # Output symbols with line ranges
     echo "$result" | jq -r '.symbols[] | "  \(.kind) \(.name) [\(.start_line)-\(.end_line)]"' 2>/dev/null
 
-    # If enrichment requested, output instructions for Claude
+    # If tagging requested, output instructions for Claude
     if $enrich; then
         echo ""
-        echo -e "${BLUE}─── Enrichment ───${NC}"
+        echo -e "${BLUE}─── Semantic Tagging ───${NC}"
         echo ""
-        echo -e "${DIM}To enrich these symbols with AI-generated tags, Claude should:${NC}"
-        echo -e "${DIM}1. Extract signatures from the outline above${NC}"
-        echo -e "${DIM}2. Spawn a Haiku task to generate 2-4 intent tags per symbol${NC}"
-        echo -e "${DIM}3. Store tags via: POST /intent with tags array${NC}"
+        echo -e "${DIM}To tag these symbols, Claude should:${NC}"
+        echo -e "${DIM}1. Analyze the symbols above${NC}"
+        echo -e "${DIM}2. Generate 2-5 semantic tags per symbol via Haiku${NC}"
+        echo -e "${DIM}3. Store via: POST /outline/enriched with symbols array${NC}"
         echo ""
         # Output JSON for Claude to use
-        echo "ENRICH_REQUEST:"
-        echo "$result" | jq -c '{file: .file, language: .language, symbols: [.symbols[] | {name: .name, kind: .kind, signature: .signature}]}'
+        echo "TAG_REQUEST:"
+        echo "$result" | jq -c '{file: .file, language: .language, symbols: [.symbols[] | {name: .name, kind: .kind, line: .start_line, end_line: .end_line, signature: .signature}]}'
     fi
 }
 
-cmd_enrich() {
-    # Get pending enrichment status
+cmd_outline_status() {
+    # Show outline tagging status
     local project_id=$(get_project_id)
     local project_param=""
     if [ -n "$project_id" ]; then
@@ -767,29 +779,31 @@ cmd_enrich() {
     local up_to_date=$(echo "$result" | jq -r '.up_to_date_count // 0')
     local total=$(echo "$result" | jq -r '.total_files // 0')
 
-    echo -e "${CYAN}${BOLD}⚡ aOa Enrich${NC}"
+    echo -e "${CYAN}${BOLD}⚡ aOa Outline${NC}"
     echo ""
-    echo -e "  Pending:    ${YELLOW}${pending_count}${NC} files need enrichment"
-    echo -e "  Up to date: ${GREEN}${up_to_date}${NC} files"
-    echo -e "  Total:      ${total} files"
+    echo -e "  Pending:  ${YELLOW}${pending_count}${NC} files need semantic tags"
+    echo -e "  Tagged:   ${GREEN}${up_to_date}${NC} files"
+    echo -e "  Total:    ${total} files"
     echo ""
 
     if [ "$pending_count" -eq 0 ]; then
-        echo -e "${GREEN}All files are up to date!${NC}"
+        echo -e "${GREEN}All files are tagged!${NC}"
+        echo ""
+        echo "Try: aoa search \"#authentication\" to find auth code"
         return 0
     fi
 
-    echo -e "${BOLD}How to enrich:${NC}"
+    echo -e "${BOLD}How to tag:${NC}"
     echo ""
-    echo "  In Claude Code, say: \"aoa enrich\""
+    echo "  In Claude Code, say: \"tag the codebase\""
     echo ""
     echo "  Claude will:"
-    echo "    1. Query /outline/pending for files needing enrichment"
+    echo "    1. Get pending files from /outline/pending"
     echo "    2. Batch files into groups of 15"
-    echo "    3. Spawn Haiku tasks to generate semantic tags"
-    echo "    4. Mark files enriched via /outline/enriched"
+    echo "    3. Generate semantic tags per symbol via Haiku"
+    echo "    4. Store tags for searchable access"
     echo ""
-    echo -e "${DIM}See: plugin/skills/aoa-enrich/SKILL.md for full instructions${NC}"
+    echo -e "${DIM}Then search: aoa search \"#validation\" to find by tag${NC}"
 }
 
 # =============================================================================
@@ -1647,12 +1661,13 @@ PROJECT SEARCH
   changes [time]         Recent file changes (e.g., 5m, 1h)
   files [pattern]        List indexed files
 
-OUTLINE ANGLE (code structure)
+OUTLINE ANGLE (code structure + semantic tags)
   outline <file>         Code outline via tree-sitter (functions, classes)
-  outline <f> --enrich   Request AI enrichment (Claude spawns Haiku)
-  outline --pending      Check enrichment status (pending/up-to-date)
-  outline --enrich-all   Batch enrich project (delta: only changed files)
-  enrich                 Show enrichment instructions for Claude
+  outline --pending      Check tagging status (pending/tagged)
+  outline --enrich-all   Show files needing tags (detailed)
+
+  To add semantic tags: In Claude Code, say "tag the codebase"
+  Then search: aoa search "#authentication"
 
 ATTACK STATUS
   status                 Show attack status (hit rate, intents)
@@ -1732,7 +1747,7 @@ main() {
         changes|c)  cmd_changes "$@" ;;
         files|f)    cmd_files "$@" ;;
         outline|o)  cmd_outline "$@" ;;
-        enrich|e)   cmd_enrich "$@" ;;
+        enrich|e)   cmd_outline --pending ;;  # Alias - now part of outline
 
         # Pattern Search
         pattern|p)  cmd_pattern "$@" ;;
