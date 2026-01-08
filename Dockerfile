@@ -25,12 +25,13 @@ LABEL maintainer="aOa Team"
 LABEL description="5 angles. 1 attack. Fast code search for Claude Code."
 LABEL version="1.0.0"
 
-# Install system dependencies
+# Install system dependencies (build-essential needed for tree-sitter compilation)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     curl \
     redis-server \
     supervisor \
+    build-essential \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies (all services)
@@ -104,7 +105,7 @@ stderr_logfile=/var/log/supervisor/status-error.log
 [program:proxy]
 command=python /app/proxy/git_proxy.py
 directory=/app/proxy
-environment=REPOS_ROOT="/repos",WHITELIST_FILE="/config/whitelist.txt",MAX_REPO_SIZE_MB="500",CLONE_TIMEOUT="300",PROXY_PORT="9997"
+environment=REPOS_ROOT="/repos",WHITELIST_FILE="/config/whitelist.txt",MAX_REPO_SIZE_MB="500",CLONE_TIMEOUT="300",GIT_PROXY_PORT="9997"
 autostart=true
 autorestart=true
 stdout_logfile=/var/log/supervisor/proxy.log
