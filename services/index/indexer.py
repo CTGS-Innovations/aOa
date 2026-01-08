@@ -643,12 +643,21 @@ class IndexManager:
 
         In global mode, returns the project index if project_id is provided.
         In legacy mode, returns the single local index.
+
+        IMPORTANT: If project_id is provided but not found, returns None
+        to prevent cross-project data leakage.
         """
-        if project_id and project_id in self.projects:
-            return self.projects[project_id]
+        if project_id:
+            # Project ID provided - must match exactly, no fallback
+            if project_id in self.projects:
+                return self.projects[project_id]
+            # Project ID not found - don't fall back to wrong index
+            return None
+
+        # No project ID - legacy mode fallback
         if self.local:
             return self.local
-        # Return first project if available
+        # Return first project if available (legacy compatibility)
         if self.projects:
             return next(iter(self.projects.values()))
         return None
