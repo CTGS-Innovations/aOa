@@ -181,6 +181,62 @@ def check_prediction_hit(session_id: str, file_path: str):
         pass  # Fire and forget
 
 
+def get_file_sizes(files: list) -> dict:
+    """Get file sizes from index for baseline token calculation."""
+    file_sizes = {}
+
+    # Try to get project ID from .aoa/home.json
+    project_id = None
+    try:
+        # Look for .aoa/home.json in current directory or parents
+        cwd = os.getcwd()
+        for _ in range(5):  # Check up to 5 levels up
+            home_file = os.path.join(cwd, '.aoa', 'home.json')
+            if os.path.exists(home_file):
+                with open(home_file) as f:
+                    project_id = json.load(f).get('project_id')
+                    break
+            parent = os.path.dirname(cwd)
+            if parent == cwd:
+                break
+            cwd = parent
+    except Exception:
+        pass
+
+    for file_path in files:
+        # Skip patterns and non-file paths
+        if file_path.startswith('pattern:') or not file_path.startswith('/'):
+            continue
+
+        try:
+            # Convert absolute path to project-relative
+            # Try common project roots
+            rel_path = file_path
+            for prefix in ['/home/corey/aOa/', '/home/corey/projects/', '/codebase/', '/userhome/']:
+                if file_path.startswith(prefix):
+                    rel_path = file_path[len(prefix):]
+                    break
+
+            # Query index for file metadata
+            from urllib.parse import quote
+            encoded_path = quote(rel_path, safe='')
+            url = f"{AOA_URL}/file/meta?path={encoded_path}"
+            if project_id:
+                url += f"&project={project_id}"
+
+            req = Request(url, method="GET")
+            response = urlopen(req, timeout=0.5)
+            data = json.loads(response.read().decode('utf-8'))
+
+            if 'size' in data:
+                file_sizes[file_path] = data['size']
+        except (URLError, Exception):
+            # If we can't get size, skip it (don't block)
+            pass
+
+    return file_sizes
+
+
 def send_intent(tool: str, files: list, tags: list, session_id: str, tool_use_id: str = None):
     """Send intent to aOa (fire-and-forget)."""
     if not files:
@@ -195,12 +251,16 @@ def send_intent(tool: str, files: list, tags: list, session_id: str, tool_use_id
         for file_path in files:
             check_prediction_hit(session_id, file_path)
 
+    # Get file sizes for baseline calculation (used in intent display)
+    file_sizes = get_file_sizes(files)
+
     payload = json.dumps({
         "session_id": session_id,
         "tool": tool,
         "files": files,
         "tags": tags,
         "tool_use_id": tool_use_id,  # Claude's correlation key
+        "file_sizes": file_sizes,  # For baseline token estimation
     }).encode('utf-8')
 
     try:

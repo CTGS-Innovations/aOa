@@ -1216,10 +1216,11 @@ cmd_intent_recent() {
         {
             tool: .tool,
             files: (.files[0] // "unknown"),
-            tags: (.tags[0:3] | join(" "))
+            tags: (.tags[0:3] | join(" ")),
+            file_size: (if .file_sizes then .file_sizes[.files[0]] else null end)
         } |
-        "\(.tool)|\(.files)|\(.tags)"
-    ' 2>/dev/null | while IFS='|' read -r tool file tags; do
+        "\(.tool)|\(.files)|\(.tags)|\(.file_size // 0)"
+    ' 2>/dev/null | while IFS='|' read -r tool file tags file_size; do
         # Map tool to action
         local action="$tool"
         case "$tool" in
@@ -1230,61 +1231,73 @@ cmd_intent_recent() {
                 ;;
         esac
 
-        # Estimate tokens (Phase 1 - rough estimates based on tool type)
-        local actual base saved time_saved
+        # Calculate tokens from file size if available
+        local actual base saved time_saved base_tokens
+
+        # If we have file size, use it for more accurate baseline
+        if [ "$file_size" -gt 0 ] 2>/dev/null; then
+            # BASE = file size in bytes / 3 (rough token estimate)
+            base_tokens=$((file_size / 3))
+
+            # Format with k suffix if > 1000
+            if [ $base_tokens -ge 1000 ]; then
+                local base_k=$(awk "BEGIN {printf \"%.1f\", $base_tokens/1000}")
+                base="${base_k}k"
+            else
+                base="$base_tokens"
+            fi
+        else
+            # Fallback to defaults if no file size
+            base_tokens=0
+            base="?"
+        fi
+
+        # ACTUAL and SAVED estimates by tool type
         case "$action" in
             Search)
                 actual="45"
-                base="3.2k"
-                saved="3.1k"
+                saved=$([ $base_tokens -gt 0 ] && echo "$((base_tokens - 45))" || echo "3.1k")
                 time_saved="<5ms"
                 ;;
             Grep|Glob)
                 actual="30"
-                base="2.8k"
-                saved="2.7k"
+                saved=$([ $base_tokens -gt 0 ] && echo "$((base_tokens - 30))" || echo "2.7k")
                 time_saved="~2.3s"
                 ;;
             Read)
-                # Estimate from file extension or use default
-                if [[ "$file" == *.py ]]; then
-                    actual="890"
-                    base="14.5k"
-                    saved="13.6k"
-                elif [[ "$file" == *.md ]]; then
-                    actual="450"
-                    base="5.2k"
-                    saved="4.7k"
-                elif [[ "$file" == *.sh ]]; then
-                    actual="320"
-                    base="2.4k"
-                    saved="2.0k"
+                # Estimate 6% of file is actually read (targeted read)
+                if [ $base_tokens -gt 0 ]; then
+                    local actual_tokens=$((base_tokens * 6 / 100))
+                    actual="$actual_tokens"
+                    saved="$((base_tokens - actual_tokens))"
                 else
-                    actual="600"
-                    base="8.0k"
-                    saved="7.4k"
+                    actual="890"
+                    saved="13.6k"
                 fi
                 time_saved="-"
                 ;;
             Edit|Write)
-                actual="450"
-                base="450"
+                actual=$([ $base_tokens -gt 0 ] && echo "$base_tokens" || echo "450")
                 saved="-"
                 time_saved="-"
                 ;;
             Outline)
                 actual="0"
-                base="15.2k"
-                saved="15.2k"
+                saved=$([ $base_tokens -gt 0 ] && echo "$base_tokens" || echo "15.2k")
                 time_saved="-"
                 ;;
             *)
                 actual="50"
-                base="3.2k"
-                saved="3.1k"
+                saved=$([ $base_tokens -gt 0 ] && echo "$((base_tokens - 50))" || echo "3.1k")
                 time_saved="-"
                 ;;
         esac
+
+        # Format saved with k suffix if numeric and > 1000
+        if [[ "$saved" =~ ^[0-9]+$ ]] && [ "$saved" -ge 1000 ]; then
+            local saved_k=$(awk "BEGIN {printf \"%.1f\", $saved/1000}")
+            saved="${saved_k}k"
+        fi
 
         # Format file path (project-relative)
         local target=$(echo "$file" | sed "s|$(get_project_root)/||" 2>/dev/null || echo "$file")
@@ -1294,17 +1307,27 @@ cmd_intent_recent() {
         if [ "$saved" = "-" ]; then
             impact="${DIM}no savings${NC}"
         else
-            # Calculate rough percentage (base -> actual)
-            # For display, estimate percentage from savings vs base
-            local pct="97"  # Default high percentage
-            local pct_color="${GREEN}"
-            if [[ "$action" == "Read" ]]; then
+            # Calculate actual percentage if we have base_tokens
+            local pct pct_color="${GREEN}"
+            if [ $base_tokens -gt 0 ] && [[ "$saved" =~ ^[0-9]+$ ]]; then
+                pct=$((saved * 100 / base_tokens))
+            elif [ $base_tokens -gt 0 ] && [[ "$saved" =~ ^[0-9.]+k$ ]]; then
+                # Rough estimate if saved is in "k" format
                 pct="94"
-            elif [[ "$action" == "Grep" || "$action" == "Glob" ]]; then
-                pct="96"
-            elif [[ "$action" == "Outline" ]]; then
-                pct="100"
-                pct_color="${CYAN}${BOLD}"  # 100% gets special color
+            else
+                # Fallback percentages
+                case "$action" in
+                    Search) pct="97" ;;
+                    Grep|Glob) pct="96" ;;
+                    Read) pct="94" ;;
+                    Outline) pct="100" ;;
+                    *) pct="95" ;;
+                esac
+            fi
+
+            # Special color for 100%
+            if [ "$pct" = "100" ]; then
+                pct_color="${CYAN}${BOLD}"
             fi
 
             # Format impact string with colored percentage

@@ -113,6 +113,7 @@ class IntentRecord:
     tags: List[str]
     tool_use_id: Optional[str] = None  # Claude's toolu_xxx correlation key
     project_id: Optional[str] = None  # UUID for per-project isolation
+    file_sizes: Optional[Dict[str, int]] = None  # File path -> size in bytes (for baseline calc)
 
 
 @dataclass
@@ -919,7 +920,7 @@ class IntentIndex:
         return project_id if project_id else self.DEFAULT_PROJECT
 
     def record(self, tool: str, files: List[str], tags: List[str], session_id: str,
-               tool_use_id: str = None, project_id: str = None):
+               tool_use_id: str = None, project_id: str = None, file_sizes: Dict[str, int] = None):
         """Record an intent from a tool use."""
         proj = self._project_key(project_id)
         record = IntentRecord(
@@ -929,7 +930,8 @@ class IntentIndex:
             files=files,
             tags=tags,
             tool_use_id=tool_use_id,
-            project_id=project_id
+            project_id=project_id,
+            file_sizes=file_sizes or {}
         )
 
         with self.lock:
@@ -1418,6 +1420,30 @@ def file_content():
             'ms': (time.time() - start) * 1000
         })
 
+@app.route('/file/meta')
+def file_meta():
+    """Get file metadata (size, language, mtime) for baseline calculations."""
+    path = request.args.get('path', '')
+    project = request.args.get('project')
+
+    idx = manager.get_local(project)
+    if not idx:
+        return jsonify({'error': 'No index available'}), 404
+
+    # Look up file in index
+    if path in idx.files:
+        meta = idx.files[path]
+        return jsonify({
+            'path': path,
+            'size': meta.size,
+            'language': meta.language,
+            'mtime': meta.mtime,
+            'tokens_estimate': meta.size // 3  # Rough estimate: 3 bytes per token
+        })
+    else:
+        return jsonify({'error': 'File not in index'}), 404
+
+
 @app.route('/deps')
 def deps():
     start = time.time()
@@ -1884,8 +1910,9 @@ def record_intent():
     session_id = data.get('session_id', 'unknown')
     tool_use_id = data.get('tool_use_id')  # Claude's toolu_xxx ID
     project_id = data.get('project_id')  # UUID for per-project isolation
+    file_sizes = data.get('file_sizes', {})  # File path -> size for baseline calc
 
-    intent_index.record(tool, files, tags, session_id, tool_use_id, project_id)
+    intent_index.record(tool, files, tags, session_id, tool_use_id, project_id, file_sizes)
 
     return jsonify({'success': True})
 
