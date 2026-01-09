@@ -1221,6 +1221,38 @@ def mark_enriched():
     })
 
 
+@app.route('/outline/tags')
+def get_symbol_tags():
+    """Get semantic tags for symbols in a file."""
+    file_path = request.args.get('file', '')
+    project = request.args.get('project')
+
+    idx = manager.get_local(project)
+    if not idx:
+        return jsonify({'error': 'No index available', 'tags': {}}), 404
+
+    # Find all tags that have locations in this file
+    tags_by_symbol = {}
+
+    with idx.lock:
+        for tag, locations in idx.inverted_index.items():
+            if not tag.startswith('#'):
+                continue  # Only semantic tags
+
+            for loc in locations:
+                if loc.file == file_path or loc.file.endswith(file_path):
+                    symbol_name = loc.symbol or 'file'
+                    if symbol_name not in tags_by_symbol:
+                        tags_by_symbol[symbol_name] = []
+                    if tag not in tags_by_symbol[symbol_name]:
+                        tags_by_symbol[symbol_name].append(tag)
+
+    return jsonify({
+        'file': file_path,
+        'tags': tags_by_symbol
+    })
+
+
 @app.route('/outline/pending')
 def get_pending_enrichment():
     """Get files that need enrichment (modified since last enriched or never enriched)."""

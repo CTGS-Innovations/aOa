@@ -608,6 +608,7 @@ cmd_outline() {
     local pending=false
     local json_output=false
     local store=false
+    local show_tags=false
 
     # Parse arguments
     while [[ $# -gt 0 ]]; do
@@ -630,6 +631,10 @@ cmd_outline() {
                 ;;
             --store)
                 store=true
+                shift
+                ;;
+            --tags|-t)
+                show_tags=true
                 shift
                 ;;
             -*)
@@ -662,8 +667,18 @@ cmd_outline() {
         else
             local success=$(echo "$result" | jq -r '.success // false')
             if [ "$success" = "true" ]; then
-                local symbols=$(echo "$result" | jq -r '.symbols_stored // 0')
-                echo -e "${GREEN}✓${NC} Stored ${symbols} symbol tags"
+                local tags_count=$(echo "$result" | jq -r '.tags_indexed // 0')
+                local symbols_count=$(echo "$result" | jq -r '.symbols_processed // 0')
+                echo -e "${GREEN}✓${NC} Stored ${tags_count} tags across ${symbols_count} symbols"
+
+                # Record to intent system for activity tracking
+                local file_path=$(echo "$json_input" | jq -r '.file // ""')
+                local tags=$(echo "$json_input" | jq -c '[.symbols[].tags[]?] | unique | .[0:5]')
+                if [ -n "$file_path" ] && [ "$tags" != "[]" ]; then
+                    curl -s -X POST "${INDEX_URL}/intent" \
+                        -H "Content-Type: application/json" \
+                        -d "{\"tool\": \"Outline\", \"files\": [\"$file_path\"], \"tags\": $tags, \"project_id\": \"$project_id\"}" > /dev/null 2>&1
+                fi
             else
                 local err=$(echo "$result" | jq -r '.error // "Unknown error"')
                 echo -e "${RED}✗${NC} ${err}"
@@ -760,16 +775,20 @@ cmd_outline() {
 
     if [ -z "$file" ]; then
         echo "Usage: aoa outline <file>"
+        echo "       aoa outline <file> --tags"
         echo "       aoa outline --pending"
         echo ""
         echo "Options:"
+        echo "  --tags, -t    Show semantic tags for each symbol"
         echo "  --pending     Show files needing semantic tags"
         echo "  --enrich-all  Show detailed tagging status"
+        echo "  --json, -j    Output as JSON"
         echo ""
         echo "To add semantic tags, say in Claude Code: \"tag the codebase\""
         echo ""
         echo "Examples:"
         echo "  aoa outline src/index.ts"
+        echo "  aoa outline src/index.ts --tags"
         echo "  aoa outline --pending"
         return 1
     fi
@@ -805,13 +824,35 @@ cmd_outline() {
     # Header
     if $enrich; then
         printf "${CYAN}${BOLD}⚡ %s symbols${NC} ${DIM}│${NC} ${GREEN}%.2fms${NC} ${DIM}│${NC} ${YELLOW}%s${NC} ${DIM}│${NC} ${BLUE}enrichment requested${NC}\n" "$count" "$ms" "$lang"
+    elif $show_tags; then
+        printf "${CYAN}${BOLD}⚡ %s symbols${NC} ${DIM}│${NC} ${GREEN}%.2fms${NC} ${DIM}│${NC} ${YELLOW}%s${NC} ${DIM}│${NC} ${CYAN}with tags${NC}\n" "$count" "$ms" "$lang"
     else
         printf "${CYAN}${BOLD}⚡ %s symbols${NC} ${DIM}│${NC} ${GREEN}%.2fms${NC} ${DIM}│${NC} ${YELLOW}%s${NC}\n" "$count" "$ms" "$lang"
     fi
     echo ""
 
-    # Output symbols with line ranges
-    echo "$result" | jq -r '.symbols[] | "  \(.kind) \(.name) [\(.start_line)-\(.end_line)]"' 2>/dev/null
+    # Output symbols with line ranges (and tags if requested)
+    if $show_tags; then
+        # Fetch tags for this file from the inverted index
+        local tags_json=$(curl -s "${INDEX_URL}/outline/tags?file=${file}${project_param}" 2>/dev/null)
+
+        # Use jq to format output with tags inline
+        echo "$result" | jq -r --argjson tags "$tags_json" '
+            .symbols[] |
+            .kind as $kind |
+            .name as $name |
+            .start_line as $start |
+            .end_line as $end |
+            ($tags.tags[$name] // []) | join(" ") as $sym_tags |
+            if ($sym_tags | length) > 0 then
+                "  \($kind) \($name) [\($start)-\($end)] \($sym_tags)"
+            else
+                "  \($kind) \($name) [\($start)-\($end)] (no tags)"
+            end
+        ' 2>/dev/null
+    else
+        echo "$result" | jq -r '.symbols[] | "  \(.kind) \(.name) [\(.start_line)-\(.end_line)]"' 2>/dev/null
+    fi
 
     # If tagging requested, output instructions for Claude
     if $enrich; then
@@ -1337,8 +1378,9 @@ cmd_intent_recent() {
                 time_saved="-"
                 ;;
             Outline)
-                actual="0"
-                saved=$([ $base_tokens -gt 0 ] && echo "$base_tokens" || echo "15.2k")
+                # AI-generated symbol-level tags
+                actual="AI"
+                saved="AI"
                 time_saved="-"
                 ;;
             HaikuTag)
@@ -1368,7 +1410,11 @@ cmd_intent_recent() {
         if [ "$saved" = "-" ]; then
             impact="${DIM}no savings${NC}"
         elif [ "$saved" = "AI" ]; then
-            impact="${CYAN}${BOLD}AI-generated${NC} semantic tags"
+            if [ "$action" = "Outline" ]; then
+                impact="${CYAN}${BOLD}AI-generated${NC} symbol tags"
+            else
+                impact="${CYAN}${BOLD}AI-generated${NC} semantic tags"
+            fi
         else
             # Calculate actual percentage if we have base_tokens
             local pct pct_color="${GREEN}"
