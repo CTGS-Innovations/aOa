@@ -606,6 +606,8 @@ cmd_outline() {
     local enrich=false
     local enrich_all=false
     local pending=false
+    local json_output=false
+    local store=false
 
     # Parse arguments
     while [[ $# -gt 0 ]]; do
@@ -622,6 +624,14 @@ cmd_outline() {
                 pending=true
                 shift
                 ;;
+            --json|-j)
+                json_output=true
+                shift
+                ;;
+            --store)
+                store=true
+                shift
+                ;;
             -*)
                 echo "Unknown option: $1"
                 return 1
@@ -633,6 +643,36 @@ cmd_outline() {
         esac
     done
 
+    # Handle --store (post enriched tags from stdin)
+    if $store; then
+        local project_id=$(get_project_id)
+        local json_input=$(cat)
+
+        # Add project_id if not present
+        if [ -n "$project_id" ]; then
+            json_input=$(echo "$json_input" | jq --arg pid "$project_id" '. + {project: $pid}')
+        fi
+
+        local result=$(echo "$json_input" | curl -s -X POST "${INDEX_URL}/outline/enriched" \
+            -H "Content-Type: application/json" \
+            -d @-)
+
+        if $json_output; then
+            echo "$result" | jq .
+        else
+            local success=$(echo "$result" | jq -r '.success // false')
+            if [ "$success" = "true" ]; then
+                local symbols=$(echo "$result" | jq -r '.symbols_stored // 0')
+                echo -e "${GREEN}✓${NC} Stored ${symbols} symbol tags"
+            else
+                local err=$(echo "$result" | jq -r '.error // "Unknown error"')
+                echo -e "${RED}✗${NC} ${err}"
+                return 1
+            fi
+        fi
+        return 0
+    fi
+
     # Handle --pending (quick status check)
     if $pending; then
         local project_id=$(get_project_id)
@@ -642,6 +682,13 @@ cmd_outline() {
         fi
 
         local result=$(curl -s "${INDEX_URL}/outline/pending${project_param}")
+
+        # JSON output for agents/scripts
+        if $json_output; then
+            echo "$result" | jq .
+            return 0
+        fi
+
         local pending_count=$(echo "$result" | jq -r '.pending_count // 0')
         local up_to_date=$(echo "$result" | jq -r '.up_to_date_count // 0')
         local total=$(echo "$result" | jq -r '.total_files // 0')
@@ -735,6 +782,12 @@ cmd_outline() {
     fi
 
     local result=$(curl -s "${INDEX_URL}/outline?file=${file}${project_param}")
+
+    # JSON output for agents/scripts
+    if $json_output; then
+        echo "$result" | jq .
+        return 0
+    fi
 
     # Check for errors
     local err=$(echo "$result" | jq -r '.error // empty')

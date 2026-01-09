@@ -18,20 +18,22 @@ Process all pending files that need semantic tagging:
 ## Step 1: Check Pending Files
 
 ```bash
-curl -s localhost:8080/outline/pending | jq '{pending: .pending_count, files: [.pending[:15][] | .file]}'
+aoa outline --pending --json
 ```
 
-If `pending` is 0: Report "All files tagged!" and stop.
+Parse the response to get `pending_count` and `pending` array.
+
+If `pending_count` is 0: Report "All files tagged!" and stop.
 
 ## Step 2: Get Outlines for Batch
 
 For each file in the batch (up to 15 at a time):
 
 ```bash
-curl -s "localhost:8080/outline?file=<filepath>" | jq '{file: .file, symbols: [.symbols[] | {name, kind, line, end_line, signature}]}'
+aoa outline <filepath> --json
 ```
 
-Collect the outlines for all files in the batch.
+This returns symbols with name, kind, line numbers, and signatures.
 
 ## Step 3: Generate Tags Per Symbol
 
@@ -43,25 +45,13 @@ For each symbol in each outline, generate 2-5 semantic tags:
 
 ## Step 4: Store Tags in Index
 
-For each file, POST the symbol-level tags with the project ID:
+For each file, pipe the JSON to `aoa outline --store`:
 
 ```bash
-# Get project ID from .aoa/home.json in the current working directory
-PROJECT_ID=$(jq -r '.project_id' .aoa/home.json 2>/dev/null || echo "")
-
-curl -s -X POST localhost:8080/outline/enriched \
-  -H "Content-Type: application/json" \
-  -d "{
-    \"file\": \"<filepath>\",
-    \"project\": \"${PROJECT_ID}\",
-    \"symbols\": [
-      {\"name\": \"functionName\", \"kind\": \"function\", \"line\": 10, \"end_line\": 25, \"tags\": [\"#auth\", \"#validation\"]},
-      {\"name\": \"ClassName\", \"kind\": \"class\", \"line\": 30, \"end_line\": 80, \"tags\": [\"#model\", \"#database\"]}
-    ]
-  }"
+echo '{"file": "<filepath>", "symbols": [{"name": "funcName", "kind": "function", "line": 10, "end_line": 25, "tags": ["#auth", "#validation"]}]}' | aoa outline --store
 ```
 
-**IMPORTANT**: Always include the project ID from `.aoa/home.json` to ensure tags are associated with the correct project.
+The project ID is added automatically from `.aoa/home.json`.
 
 ## Step 5: Report Progress
 
@@ -77,7 +67,7 @@ If no more pending, report: "Outline tagging complete: X files processed"
 
 ## Error Handling
 
-- **Service down**: Report "aOa not running" and stop
+- **Service down**: Report "aOa not running. Run `aoa health` to check." and stop
 - **File fails**: Skip it, continue with batch, note at end
 - **Timeout**: Retry once, then skip
 
@@ -108,3 +98,4 @@ Outline tagging complete: 32 files, 247 symbols tagged.
 - Only processes files that changed or never tagged
 - Safe to re-run (idempotent - skips already-tagged files)
 - Run in background for large codebases
+- Always use `aoa` CLI commands, never raw curl
