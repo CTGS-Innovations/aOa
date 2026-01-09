@@ -121,12 +121,33 @@ Grep("session") # call 3
 aoa search "auth login session"  # ONE call, ranked results
 ```
 
+## Rule #4: Two Search Modes
+
+**Symbol Lookup (O(1) - instant):**
+```bash
+aoa search tree_sitter                  # exact symbol
+aoa search "auth session token"         # multi-term ranked
+```
+
+**Pattern Search (regex - scans files):**
+```bash
+aoa pattern '{"match": "tree.sitter"}'       # regex
+aoa pattern '{"func": "def\\s+handle\\w+"}'  # find patterns
+```
+
+**When to use which:**
+- `aoa search` → Know the symbol, need speed
+- `aoa pattern` → Need regex matching
+
+**Note:** `aoa search` tokenizes on word boundaries. Hyphens break tokens.
+
 ## Commands
 
 | Command | Use For | Speed |
 |---------|---------|-------|
-| `aoa search <term>` | Finding ANY code/symbol | <5ms |
+| `aoa search <term>` | Symbol lookup | <5ms |
 | `aoa search "term1 term2"` | Multi-term ranked | <10ms |
+| `aoa pattern '{"k":"regex"}'` | Regex search | ~20ms |
 | `aoa health` | Check services | instant |
 | `aoa intent recent` | See what's being worked on | <50ms |
 
