@@ -220,9 +220,14 @@ EOFREADME
 
 # aOa Integration
 
-This project uses aOa for fast code intelligence. See `.aoa/USAGE.md` for goals and commands.
+**Why:** aOa provides O(1) symbol search. Instead of slow Grep/Glob, find code in <5ms.
 
-**Rule: Use `aoa` CLI commands, never raw curl.**
+**Commands:**
+- `aoa search <term>` - Find code fast (ALWAYS use instead of Grep)
+- `aoa outline <file>` - See file structure without reading it all
+- `aoa intent` - Track what you're working on
+
+**Rule:** Use `aoa` CLI, never raw curl. See `.aoa/USAGE.md` for full guide.
 EOFCLAUDE
             echo -e "${GREEN}✓${NC} ${DIM}(appended)${NC}"
         else
@@ -233,9 +238,14 @@ EOFCLAUDE
         cat > "$claude_md" << 'EOFCLAUDE'
 # aOa Integration
 
-This project uses aOa for fast code intelligence. See `.aoa/USAGE.md` for goals and commands.
+**Why:** aOa provides O(1) symbol search. Instead of slow Grep/Glob, find code in <5ms.
 
-**Rule: Use `aoa` CLI commands, never raw curl.**
+**Commands:**
+- `aoa search <term>` - Find code fast (ALWAYS use instead of Grep)
+- `aoa outline <file>` - See file structure without reading it all
+- `aoa intent` - Track what you're working on
+
+**Rule:** Use `aoa` CLI, never raw curl. See `.aoa/USAGE.md` for full guide.
 EOFCLAUDE
         echo -e "${GREEN}✓${NC} ${DIM}(created)${NC}"
     fi
@@ -381,6 +391,19 @@ cmd_remove() {
     echo -n "  Removing index................ "
     curl -s -X DELETE "${INDEX_URL}/project/${project_id}" > /dev/null 2>&1 || true
     echo -e "${GREEN}✓${NC}"
+
+    # Clean up CLAUDE.md - remove aOa Integration section
+    echo -n "  Cleaning CLAUDE.md............ "
+    local claude_md="$project_root/CLAUDE.md"
+    if [ -f "$claude_md" ] && grep -q "# aOa Integration" "$claude_md"; then
+        # Remove the aOa Integration section (from marker to next # heading or EOF)
+        sed -i '/^# aOa Integration$/,/^# [^a]/{/^# [^a]/!d}' "$claude_md" 2>/dev/null
+        # Clean up any trailing empty lines
+        sed -i -e :a -e '/^\n*$/{$d;N;ba' -e '}' "$claude_md" 2>/dev/null
+        echo -e "${GREEN}✓${NC}"
+    else
+        echo -e "${DIM}not present${NC}"
+    fi
 
     # Restore settings from backup if available
     echo -n "  Restoring settings............ "
