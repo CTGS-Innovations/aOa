@@ -1309,32 +1309,64 @@ cmd_intent_recent() {
     # Header
     echo -e "${CYAN}${BOLD}aOa Activity${NC}                                                 Session"
     echo ""
-    echo -e "${BOLD}SAVINGS${NC}         ${GREEN}↓${tokens_k}k tokens${NC} ${DIM}(${hit_pct_int}%)${NC}  ${GREEN}⚡${time_saved_sec}s faster${NC}"
+    # Only show savings if we have REAL data (not fabricated)
+    if [ "$tokens_saved" -gt 0 ] 2>/dev/null; then
+        echo -e "${BOLD}SAVINGS${NC}         ${GREEN}↓${tokens_k}k tokens${NC} (measured)"
+    else
+        echo -e "${BOLD}SAVINGS${NC}         ${DIM}(no measured savings yet)${NC}"
+    fi
     echo -e "${BOLD}PREDICTIONS${NC}     ${hit_pct_int}% accuracy (${hits} of ${evaluated} hits)"
-    echo -e "${BOLD}REDUCTION${NC}       ${CYAN}aOa finds exact locations${NC}, so Claude reads only what it needs"
-    echo -e "                ${DIM}e.g. 18k → 1.1k means Claude read 1,100 tokens instead of the full 18,000${NC}"
+    echo -e "${BOLD}HOW IT WORKS${NC}    ${CYAN}aOa finds exact locations${NC}, so Claude reads only what it needs"
+    echo -e "                ${DIM}Savings calculated when we have baseline (file size) + actual output${NC}"
     echo ""
     echo -e "${DIM}─────────────────────────────────────────────────────────────────────────────────────────────${NC}"
     echo ""
-    echo -e "ACTION       ⚡ aOa IMPACT ${DIM}(tokens)${NC}                        TAGS                                               TARGET"
+    echo -e "ACTION       SOURCE    ⚡ aOa IMPACT                              TAGS                                   TARGET"
 
-    # Process records
+    # Process records - extract file_size (baseline) and output_size (actual)
     echo "$result" | jq -r --arg project_root "$(get_project_root)" '.records[] |
         {
             tool: .tool,
             files: (.files[0] // "unknown"),
             tags: (.tags[0:3] | join(" ")),
-            file_size: (if .file_sizes then .file_sizes[.files[0]] else null end)
+            file_size: (if (.file_sizes and .files[0]) then .file_sizes[.files[0]] else null end),
+            output_size: .output_size
         } |
-        "\(.tool)|\(.files)|\(.tags)|\(.file_size // 0)"
-    ' 2>/dev/null | while IFS='|' read -r tool file tags file_size; do
-        # Map tool to action
+        "\(.tool)|\(.files)|\(.tags)|\(.file_size // 0)|\(.output_size // 0)"
+    ' 2>/dev/null | while IFS='|' read -r tool file tags file_size output_size; do
+        # Map tool to action and determine source
         local action="$tool"
+        local source="Claude"
+
         case "$tool" in
             Bash)
-                if echo "$file" | grep -q "aoa search"; then
+                # Check for aOa commands - new format: cmd:aoa:type:term:hits:time
+                if echo "$file" | grep -q "^cmd:aoa:"; then
                     action="Search"
+                    source="aOa"
+                    local aoa_term=$(echo "$file" | cut -d: -f4)
+                    local aoa_hits=$(echo "$file" | cut -d: -f5)
+                    local aoa_time=$(echo "$file" | cut -d: -f6)
+                    # Format to match aOa output: "term" 20 hits │ 0.37ms
+                    if [ -n "$aoa_hits" ] && [ "$aoa_hits" != "0" ]; then
+                        file="\"${aoa_term}\" ${aoa_hits} hits │ ${aoa_time}ms"
+                    else
+                        file="\"${aoa_term}\" 0 hits"
+                    fi
+                # Old format: cmd:aoa search term (space separated)
+                elif echo "$file" | grep -q "^cmd:aoa "; then
+                    action="Search"
+                    source="aOa"
+                    local aoa_term=$(echo "$file" | sed 's/^cmd:aoa [a-z]* //')
+                    file="\"${aoa_term}\""
                 fi
+                ;;
+            Outline)
+                source="aOa"
+                ;;
+            HaikuTag|Intent)
+                action="Intent"
+                source="aOa"
                 ;;
         esac
 
@@ -1359,52 +1391,63 @@ cmd_intent_recent() {
             base="?"
         fi
 
-        # ACTUAL and SAVED estimates by tool type
+        # ACTUAL and SAVED - only show REAL metrics, never fabricate
         case "$action" in
-            Search)
-                actual="45"
-                saved=$([ $base_tokens -gt 0 ] && echo "$((base_tokens - 45))" || echo "3.1k")
-                time_saved="<5ms"
-                ;;
             Grep|Glob)
-                # Glob/Grep are slow - show warning, not fake reduction
+                # Grep/Glob bypass aOa - warn user to use aoa search instead
                 actual="SLOW"
                 saved="SLOW"
                 time_saved="~2.3s"
                 ;;
-            Read)
-                # Estimate 6% of file is actually read (targeted read)
-                if [ $base_tokens -gt 0 ]; then
-                    local actual_tokens=$((base_tokens * 6 / 100))
-                    actual="$actual_tokens"
-                    saved="$((base_tokens - actual_tokens))"
-                else
-                    actual="890"
-                    saved="13.6k"
-                fi
-                time_saved="-"
-                ;;
-            Edit|Write)
-                actual=$([ $base_tokens -gt 0 ] && echo "$base_tokens" || echo "450")
-                saved="-"
-                time_saved="-"
-                ;;
             Outline)
-                # AI-generated symbol-level tags
+                # AI-generated symbol-level tags - enrichment, not reduction
                 actual="AI"
                 saved="AI"
                 time_saved="-"
                 ;;
             HaikuTag)
-                # AI-generated tags - no reduction, just enrichment
+                # AI-generated tags - enrichment, not reduction
                 actual="AI"
                 saved="AI"
                 time_saved="-"
                 ;;
             *)
-                actual="50"
-                saved=$([ $base_tokens -gt 0 ] && echo "$((base_tokens - 50))" || echo "3.1k")
-                time_saved="-"
+                # Check if we have REAL output_size data
+                if [ "$output_size" -gt 0 ] 2>/dev/null; then
+                    # REAL data: calculate actual tokens from output_size
+                    local actual_tokens=$((output_size / 4))
+
+                    # Format actual with k suffix if > 1000
+                    if [ $actual_tokens -ge 1000 ]; then
+                        local actual_k=$(awk "BEGIN {printf \"%.1f\", $actual_tokens/1000}")
+                        actual="${actual_k}k"
+                    else
+                        actual="$actual_tokens"
+                    fi
+
+                    # Calculate savings if we have baseline
+                    if [ $base_tokens -gt 0 ]; then
+                        local saved_tokens=$((base_tokens - actual_tokens))
+                        if [ $saved_tokens -gt 0 ]; then
+                            if [ $saved_tokens -ge 1000 ]; then
+                                local saved_k=$(awk "BEGIN {printf \"%.1f\", $saved_tokens/1000}")
+                                saved="${saved_k}k"
+                            else
+                                saved="$saved_tokens"
+                            fi
+                        else
+                            saved="0"
+                        fi
+                    else
+                        saved="-"
+                    fi
+                    time_saved="-"
+                else
+                    # No output_size captured yet - be honest
+                    actual="-"
+                    saved="-"
+                    time_saved="-"
+                fi
                 ;;
         esac
 
@@ -1431,52 +1474,40 @@ cmd_intent_recent() {
                 impact="${CYAN}${BOLD}AI-generated${NC} semantic tags"
             fi
         else
-            # Calculate actual percentage if we have base_tokens
-            local pct pct_color="${GREEN}"
-            if [ $base_tokens -gt 0 ] && [[ "$saved" =~ ^[0-9]+$ ]]; then
-                pct=$((saved * 100 / base_tokens))
-            elif [ $base_tokens -gt 0 ] && [[ "$saved" =~ ^[0-9.]+k$ ]]; then
-                # Rough estimate if saved is in "k" format
-                pct="94"
+            # Check if we have REAL savings data (both baseline AND actual output)
+            if [ "$output_size" -gt 0 ] 2>/dev/null && [ "$base_tokens" -gt 0 ]; then
+                # REAL measured savings - calculate percentage
+                local actual_tokens=$((output_size / 4))
+                local saved_tokens=$((base_tokens - actual_tokens))
+                if [ $saved_tokens -gt 0 ]; then
+                    local pct=$((saved_tokens * 100 / base_tokens))
+                    impact="${GREEN}${pct}%${NC} reduction (${base} → ${actual}) ${DIM}[measured]${NC}"
+                else
+                    impact="${DIM}no savings${NC} (${base} → ${actual})"
+                fi
+            elif [ "$base_tokens" -gt 0 ]; then
+                # Have baseline but no actual output yet
+                impact="${DIM}baseline: ${base}${NC} ${DIM}(output not captured)${NC}"
             else
-                # Fallback percentages
-                case "$action" in
-                    Search) pct="97" ;;
-                    Grep|Glob) pct="96" ;;
-                    Read) pct="94" ;;
-                    Outline) pct="100" ;;
-                    *) pct="95" ;;
-                esac
-            fi
-
-            # Special color for 100%
-            if [ "$pct" = "100" ]; then
-                pct_color="${CYAN}${BOLD}"
-            fi
-
-            # Format impact string with colored percentage
-            if [ "$time_saved" = "-" ]; then
-                impact="${pct_color}${pct}%${NC} reduction (${base} → ${actual})"
-            else
-                impact="${pct_color}${pct}%${NC} reduction (${base} → ${actual}) ${time_saved}"
+                impact="${DIM}no baseline${NC}"
             fi
         fi
 
-        # Truncate tags to 50 chars
-        if [ ${#tags} -gt 50 ]; then
-            tags="${tags:0:47}..."
+        # Truncate tags to 40 chars (reduced for SOURCE column)
+        if [ ${#tags} -gt 40 ]; then
+            tags="${tags:0:37}..."
         fi
 
         # Manual padding for color code compatibility
         # Strip ANSI codes to get visible length
         local impact_visible=$(echo -e "$impact" | sed 's/\x1b\[[0-9;]*m//g')
         local impact_len=${#impact_visible}
-        local pad_len=$((45 - impact_len))
+        local pad_len=$((40 - impact_len))
 
-        printf "%-12s " "$action"
+        printf "%-12s %-9s " "$action" "$source"
         echo -ne "$impact"
         [ $pad_len -gt 0 ] && printf "%${pad_len}s" ""
-        printf " %-50s %s\n" "$tags" "$target"
+        printf " %-40s %s\n" "$tags" "$target"
     done
 
     echo ""
@@ -1534,13 +1565,12 @@ cmd_intent_file() {
 cmd_intent_stats() {
     local project_id=$(get_project_id)
 
-    # Get metrics for comprehensive view
+    # Get metrics
     local metrics=$(curl -s "${INDEX_URL}/metrics?project_id=${project_id}")
-    local tokens_saved=$(echo "$metrics" | jq -r '.savings.tokens // 0')
-    local time_saved_sec=$(echo "$metrics" | jq -r '.savings.time_sec // 0')
     local hit_pct=$(echo "$metrics" | jq -r '.rolling.hit_at_5_pct // 0')
     local evaluated=$(echo "$metrics" | jq -r '.rolling.evaluated // 0')
     local hits=$(echo "$metrics" | jq -r '.rolling.hits // 0')
+    local tokens_saved=$(echo "$metrics" | jq -r '.savings.tokens // 0')
 
     # Get intent stats
     local stats=$(curl -s "${INDEX_URL}/intent/stats?project_id=${project_id}")
@@ -1548,34 +1578,29 @@ cmd_intent_stats() {
     local unique_tags=$(echo "$stats" | jq -r '.unique_tags // 0')
     local unique_files=$(echo "$stats" | jq -r '.unique_files // 0')
 
-    # Format
-    local tokens_k=$(awk "BEGIN {printf \"%.0f\", $tokens_saved/1000}")
     local hit_pct_int=$(printf "%.0f" "$hit_pct")
 
     # Header
     echo -e "${CYAN}${BOLD}aOa Session Statistics${NC}                                      ${total} operations"
     echo ""
-    echo -e "${BOLD}CUMULATIVE VALUE${NC}"
-    echo -e "  Tokens saved:     ${GREEN}↓${tokens_k}k (${hit_pct_int}% reduction)${NC}"
-    echo -e "  Time saved:       ${GREEN}⚡${time_saved_sec}s faster${NC}"
-    echo -e "  Predictions:      ${GREEN}${hit_pct_int}% accuracy${NC} (${hits}/${evaluated} hits)"
+    echo -e "${BOLD}WHAT WE TRACK (REAL DATA)${NC}"
+    echo -e "  Predictions:      ${GREEN}${hit_pct_int}% accuracy${NC} (${hits} of ${evaluated} hits)"
+    echo -e "  Operations:       ${total}"
+    echo -e "  Unique files:     ${unique_files}"
+    echo -e "  Unique tags:      ${unique_tags}"
+    echo ""
+    echo -e "${BOLD}TOKEN SAVINGS${NC}"
+    if [ "$tokens_saved" -gt 0 ] 2>/dev/null; then
+        local tokens_k=$(awk "BEGIN {printf \"%.1f\", $tokens_saved/1000}")
+        echo -e "  Measured:         ${GREEN}↓${tokens_k}k tokens${NC}"
+    else
+        echo -e "  ${DIM}Not yet measured - requires capturing actual output tokens${NC}"
+        echo -e "  ${DIM}Baseline (file sizes) is captured; actual output capture coming soon${NC}"
+    fi
     echo ""
     echo -e "${DIM}─────────────────────────────────────────────────────────────────────────────────────────────${NC}"
     echo ""
-    echo -e "${BOLD}BY OPERATION TYPE${NC}"
-    echo ""
-    printf "%-15s %-8s %-15s %-15s %-12s %s\n" "ACTION" "COUNT" "TOTAL BASE" "TOTAL ACTUAL" "⚡SAVED" "AVG REDUCTION"
-
-    # Hardcoded estimates for Phase 1 (will be replaced with real aggregation in Phase 2)
-    echo -e "Search          12       38.4k           540             ${GREEN}37.8k       97%${NC}"
-    echo -e "Read            23       333.5k          20,470          ${GREEN}313.0k      94%${NC}"
-    echo -e "Grep            8        22.4k           240             ${GREEN}22.1k       96%${NC}"
-    echo -e "Outline         3        45.6k           0               ${CYAN}${BOLD}45.6k       100%${NC}"
-    echo -e "Edit/Write      2        900             900             ${DIM}-           0%${NC}"
-    echo ""
-    echo -e "${DIM}─────────────────────────────────────────────────────────────────────────────────────────────${NC}"
-    echo ""
-    echo "Session: ${total} operations  |  Files: ${unique_files}  |  Tags: ${unique_tags}"
+    echo -e "${DIM}Run 'aoa intent' to see recent activity with per-operation details${NC}"
 }
 
 # =============================================================================

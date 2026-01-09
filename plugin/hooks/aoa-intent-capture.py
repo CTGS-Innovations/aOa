@@ -85,6 +85,26 @@ def extract_files(data: dict) -> list:
     # Extract paths from bash commands
     if 'command' in data.get('tool_input', {}):
         cmd = data['tool_input']['command']
+
+        # Detect aOa commands (search, multi, pattern)
+        aoa_match = re.search(r'aoa\s+(search|multi|pattern)\s+(.+?)(?:\s*$|\s*\||\s*&&|\s*;)', cmd)
+        if aoa_match:
+            aoa_cmd = aoa_match.group(1)  # search, multi, or pattern
+            aoa_term = aoa_match.group(2).strip().strip('"\'')[:30]  # Limit term length
+
+            # Try to extract hit count from tool_response
+            response = data.get('tool_response', '')
+            if isinstance(response, str):
+                # Strip ANSI color codes before matching
+                response_clean = re.sub(r'\x1b\[[0-9;]*m', '', response)
+                hit_match = re.search(r'(\d+)\s*hits?\s*[│|]\s*([\d.]+)(?:ms)?', response_clean)
+                if hit_match:
+                    hits = hit_match.group(1)
+                    time_ms = hit_match.group(2)
+                    files.add(f"cmd:aoa:{aoa_cmd}:{aoa_term}:{hits}:{time_ms}")
+                else:
+                    files.add(f"cmd:aoa:{aoa_cmd}:{aoa_term}:0:0")
+
         # Match file paths in command - require at least one directory component
         # and extension must be at word boundary (not .claude matching .c)
         matches = re.findall(r'/[\w\-_]+(?:/[\w.\-_]+)+\.(?:py|js|ts|tsx|jsx|go|rs|java|cpp|c|h|md|json|yaml|yml|sh|sql)\b', cmd)
@@ -185,10 +205,39 @@ def get_file_sizes(files: list) -> dict:
     return file_sizes
 
 
-def send_intent(tool: str, files: list, tags: list, session_id: str, tool_use_id: str = None):
+def get_output_size(data: dict) -> int:
+    """Extract actual output size from tool_response.
+
+    This is the REAL token savings measurement - what Claude actually received.
+    Returns size in bytes, or 0 if not available.
+    """
+    tool_response = data.get('tool_response', {})
+    if not tool_response:
+        return 0
+
+    # tool_response can be a dict or a string
+    if isinstance(tool_response, str):
+        return len(tool_response)
+
+    # For Read tool, the response typically has 'content' field
+    if 'content' in tool_response:
+        content = tool_response['content']
+        if isinstance(content, str):
+            return len(content)
+        return len(str(content))
+
+    # For other tools, serialize the whole response
+    try:
+        return len(json.dumps(tool_response))
+    except (TypeError, ValueError):
+        return 0
+
+
+def send_intent(tool: str, files: list, tags: list, session_id: str,
+                tool_use_id: str = None, output_size: int = 0):
     """Send intent to aOa (fire-and-forget)."""
-    if not files:
-        return
+    if not files and not tags:
+        return  # Only skip if BOTH are empty
 
     # Check if this file was predicted (QW-3: Phase 2 hit/miss tracking)
     # Only check for Read operations - those are what we're trying to predict
@@ -207,6 +256,7 @@ def send_intent(tool: str, files: list, tags: list, session_id: str, tool_use_id
         "tags": tags,
         "tool_use_id": tool_use_id,  # Claude's correlation key
         "file_sizes": file_sizes,  # For baseline token estimation
+        "output_size": output_size,  # REAL actual output size in bytes
     }).encode('utf-8')
 
     try:
@@ -267,10 +317,13 @@ def main():
     files = extract_files(data)
     tags = infer_tags(files, tool)
 
-    if debug:
-        print(f"[aOa] Session: {session_id}, Tool: {tool}, Files: {files}, Tags: {tags}", file=sys.stderr)
+    # Extract REAL output size from tool_response (Phase 2: honest metrics)
+    output_size = get_output_size(data)
 
-    send_intent(tool, files, tags, session_id, tool_use_id)
+    if debug:
+        print(f"[aOa] Session: {session_id}, Tool: {tool}, Files: {files}, Tags: {tags}, Output: {output_size}B", file=sys.stderr)
+
+    send_intent(tool, files, tags, session_id, tool_use_id, output_size)
 
 
 if __name__ == "__main__":

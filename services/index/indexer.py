@@ -114,6 +114,7 @@ class IntentRecord:
     tool_use_id: Optional[str] = None  # Claude's toolu_xxx correlation key
     project_id: Optional[str] = None  # UUID for per-project isolation
     file_sizes: Optional[Dict[str, int]] = None  # File path -> size in bytes (for baseline calc)
+    output_size: Optional[int] = None  # Actual output size in bytes (for real savings calc)
 
 
 @dataclass
@@ -925,7 +926,8 @@ class IntentIndex:
         return project_id if project_id else self.DEFAULT_PROJECT
 
     def record(self, tool: str, files: List[str], tags: List[str], session_id: str,
-               tool_use_id: str = None, project_id: str = None, file_sizes: Dict[str, int] = None):
+               tool_use_id: str = None, project_id: str = None, file_sizes: Dict[str, int] = None,
+               output_size: int = None):
         """Record an intent from a tool use."""
         proj = self._project_key(project_id)
         record = IntentRecord(
@@ -936,7 +938,8 @@ class IntentIndex:
             tags=tags,
             tool_use_id=tool_use_id,
             project_id=project_id,
-            file_sizes=file_sizes or {}
+            file_sizes=file_sizes or {},
+            output_size=output_size
         )
 
         with self.lock:
@@ -1948,8 +1951,9 @@ def record_intent():
     tool_use_id = data.get('tool_use_id')  # Claude's toolu_xxx ID
     project_id = data.get('project_id')  # UUID for per-project isolation
     file_sizes = data.get('file_sizes', {})  # File path -> size for baseline calc
+    output_size = data.get('output_size')  # Actual output size for REAL savings calc
 
-    intent_index.record(tool, files, tags, session_id, tool_use_id, project_id, file_sizes)
+    intent_index.record(tool, files, tags, session_id, tool_use_id, project_id, file_sizes, output_size)
 
     return jsonify({'success': True})
 
@@ -2169,18 +2173,10 @@ def check_prediction_hit():
                     # Record the hit - global (system monitoring)
                     scorer.redis.client.incr('aoa:metrics:hits')
 
-                    # Record savings (estimate: ~1500 tokens, ~50ms per hit)
-                    # Full file read avg ~2000 tokens, targeted read ~500 = 1500 saved
-                    TOKENS_SAVED_PER_HIT = 1500
-                    TIME_SAVED_MS_PER_HIT = 50
-                    scorer.redis.client.incrby('aoa:savings:tokens', TOKENS_SAVED_PER_HIT)
-                    scorer.redis.client.incrby('aoa:savings:time_ms', TIME_SAVED_MS_PER_HIT)
-
-                    # Record per-project savings (for status line display)
+                    # Record per-project hit count (NOT fabricated savings)
+                    # Real savings are calculated when we have both baseline + actual output
                     if project_id:
                         scorer.redis.client.incr(f'aoa:{project_id}:metrics:hits')
-                        scorer.redis.client.incrby(f'aoa:{project_id}:savings:tokens', TOKENS_SAVED_PER_HIT)
-                        scorer.redis.client.incrby(f'aoa:{project_id}:savings:time_ms', TIME_SAVED_MS_PER_HIT)
 
                     # Phase 4: Mark the prediction batch as a hit in rolling data
                     rolling_data_key = f"aoa:rolling:data:{pred_key_str}"
@@ -2604,16 +2600,21 @@ def get_metrics():
             }
 
         # Legacy cumulative stats (per-project if project_id provided, else global)
+        # Note: tokens_saved and time_saved_ms are DEPRECATED - they were fabricated estimates
+        # Real savings require capturing actual output tokens (Phase 2)
         if project_id:
             hits = int(scorer.redis.client.get(f'aoa:{project_id}:metrics:hits') or 0)
             misses = int(scorer.redis.client.get(f'aoa:{project_id}:metrics:misses') or 0)
-            tokens_saved = int(scorer.redis.client.get(f'aoa:{project_id}:savings:tokens') or 0)
-            time_saved_ms = int(scorer.redis.client.get(f'aoa:{project_id}:savings:time_ms') or 0)
+            # DEPRECATED: These were fake hardcoded estimates (1500 tokens/hit, 50ms/hit)
+            # Real savings will be tracked via intent records with baseline + actual output
+            tokens_saved = int(scorer.redis.client.get(f'aoa:{project_id}:savings:tokens:real') or 0)
+            time_saved_ms = 0  # Not tracked yet
         else:
             hits = int(scorer.redis.client.get('aoa:metrics:hits') or 0)
             misses = int(scorer.redis.client.get('aoa:metrics:misses') or 0)
-            tokens_saved = int(scorer.redis.client.get('aoa:savings:tokens') or 0)
-            time_saved_ms = int(scorer.redis.client.get('aoa:savings:time_ms') or 0)
+            # DEPRECATED: These were fake hardcoded estimates
+            tokens_saved = int(scorer.redis.client.get('aoa:savings:tokens:real') or 0)
+            time_saved_ms = 0  # Not tracked yet
 
         total = hits + misses
         legacy_rate = (hits / total * 100) if total > 0 else 0
