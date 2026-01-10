@@ -1344,24 +1344,37 @@ cmd_intent_recent() {
 
         case "$tool" in
             Bash)
-                # Check for aOa commands - new format: cmd:aoa:type:term:hits:time
+                # Check for aOa commands - format: cmd:aoa:type:term:hits:time
+                # Term may contain escaped colons (\:), so parse carefully
                 if echo "$file" | grep -q "^cmd:aoa:"; then
                     action="Search"
                     source="aOa"
-                    local aoa_term=$(echo "$file" | cut -d: -f4)
-                    local aoa_hits=$(echo "$file" | cut -d: -f5)
-                    local aoa_time=$(echo "$file" | cut -d: -f6)
-                    # Format to match aOa output: "term" 20 hits │ 0.37ms
-                    if [ -n "$aoa_hits" ] && [ "$aoa_hits" != "0" ]; then
-                        file="\"${aoa_term}\" ${aoa_hits} hits │ ${aoa_time}ms"
-                    else
-                        file="\"${aoa_term}\" 0 hits"
-                    fi
+                    # Extract type (field 3)
+                    local aoa_type=$(echo "$file" | cut -d: -f3)
+                    # Extract hits:time from end (last 2 colon-separated fields)
+                    local aoa_time=$(echo "$file" | rev | cut -d: -f1 | rev)
+                    local aoa_hits=$(echo "$file" | rev | cut -d: -f2 | rev)
+                    # Extract term: everything between field 3 and hits:time
+                    # Remove "cmd:aoa:type:" prefix and ":hits:time" suffix
+                    local aoa_term=$(echo "$file" | sed "s/^cmd:aoa:${aoa_type}://" | sed "s/:${aoa_hits}:${aoa_time}$//")
+                    # Unescape colons in term
+                    aoa_term=$(echo "$aoa_term" | sed 's/\\:/:/g')
+                    # Store for later use in attribution/impact
+                    export AOA_SEARCH_TYPE="$aoa_type"
+                    export AOA_SEARCH_HITS="$aoa_hits"
+                    export AOA_SEARCH_TIME="$aoa_time"
+                    # Target is just the search term (truncate for display)
+                    local display_term="${aoa_term:0:40}"
+                    [ ${#aoa_term} -gt 40 ] && display_term="${display_term}..."
+                    file="\"${display_term}\""
                 # Old format: cmd:aoa search term (space separated)
                 elif echo "$file" | grep -q "^cmd:aoa "; then
                     action="Search"
                     source="aOa"
                     local aoa_term=$(echo "$file" | sed 's/^cmd:aoa [a-z]* //')
+                    export AOA_SEARCH_TYPE="search"
+                    export AOA_SEARCH_HITS=""
+                    export AOA_SEARCH_TIME=""
                     file="\"${aoa_term}\""
                 fi
                 ;;
@@ -1496,6 +1509,21 @@ cmd_intent_recent() {
             # Symbol-level enrichment
             attribution="${CYAN}symbols${NC}"
             impact="${CYAN}enriched${NC}"
+        elif [ "$action" = "Search" ]; then
+            # aOa search operations - show search type as attribution
+            case "$AOA_SEARCH_TYPE" in
+                pattern) attribution="${CYAN}pattern${NC}" ;;
+                multi)   attribution="${CYAN}multi${NC}" ;;
+                *)       attribution="${CYAN}symbol${NC}" ;;
+            esac
+            # Truncate time to 2 decimal places
+            local time_display=$(printf "%.2f" "$AOA_SEARCH_TIME" 2>/dev/null || echo "$AOA_SEARCH_TIME")
+            # Impact shows hits and timing
+            if [ -n "$AOA_SEARCH_HITS" ] && [ "$AOA_SEARCH_HITS" != "0" ]; then
+                impact="${CYAN}${BOLD}${AOA_SEARCH_HITS} hits${NC} ${DIM}│${NC} ${GREEN}${time_display}ms${NC}"
+            else
+                impact="${DIM}0 hits${NC}"
+            fi
         # Determine attribution based on source and savings
         # aOa brand color is CYAN (consistent with status line)
         elif [ "$source" = "aOa" ]; then
@@ -1504,7 +1532,7 @@ cmd_intent_recent() {
             attribution="-"  # Default, may be upgraded to "aOa guided" below
         fi
 
-        if [ "$action" = "Predict" ] || [ "$action" = "Intent" ] || [ "$action" = "Outline" ]; then
+        if [ "$action" = "Predict" ] || [ "$action" = "Intent" ] || [ "$action" = "Outline" ] || [ "$action" = "Search" ]; then
             : # Impact already set above for aOa native operations
         elif [ "$saved" = "-" ]; then
             impact="-"
