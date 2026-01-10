@@ -1404,7 +1404,7 @@ cmd_intent_recent() {
                 # Grep/Glob bypass aOa - warn user to use aoa search instead
                 actual="SLOW"
                 saved="SLOW"
-                time_saved="~2.3s"
+                time_saved="SLOW"
                 ;;
             Outline)
                 # AI-generated symbol-level tags - enrichment, not reduction
@@ -1509,8 +1509,8 @@ cmd_intent_recent() {
         elif [ "$saved" = "-" ]; then
             impact="-"
         elif [ "$saved" = "SLOW" ]; then
-            # Glob/Grep warning - suggest aoa search
-            impact="${YELLOW}⚠️ ${time_saved}${NC} ${DIM}(use 'aoa search')${NC}"
+            # Glob/Grep warning - suggest aoa search (no fabricated timing)
+            impact="${YELLOW}⚠️ slow${NC} ${DIM}(use 'aoa search' instead)${NC}"
         elif [ "$saved" = "AI" ]; then
             if [ "$action" = "Outline" ]; then
                 impact="${CYAN}symbol tags${NC}"
