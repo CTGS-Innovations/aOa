@@ -2901,6 +2901,233 @@ cmd_health() {
     fi
 }
 
+# Infer tags from symbol name (free pattern-based tagging)
+infer_tags_from_name() {
+    local name="$1"
+    local kind="$2"
+    local tags=()
+
+    # Convert camelCase/PascalCase to words
+    local words=$(echo "$name" | sed 's/\([a-z]\)\([A-Z]\)/\1 \2/g' | sed 's/_/ /g' | tr '[:upper:]' '[:lower:]')
+
+    # Common action verbs → tags
+    [[ "$words" =~ ^(get|fetch|load|read) ]] && tags+=("#read")
+    [[ "$words" =~ ^(set|save|write|store|update|put) ]] && tags+=("#write")
+    [[ "$words" =~ ^(delete|remove|clear) ]] && tags+=("#delete")
+    [[ "$words" =~ ^(create|add|insert|new|make|build) ]] && tags+=("#create")
+    [[ "$words" =~ ^(handle|process|on) ]] && tags+=("#handler")
+    [[ "$words" =~ ^(validate|check|verify|is|has|can) ]] && tags+=("#validation")
+    [[ "$words" =~ ^(parse|extract|convert|transform) ]] && tags+=("#transform")
+    [[ "$words" =~ ^(init|setup|configure|start|boot) ]] && tags+=("#init")
+    [[ "$words" =~ ^test ]] && tags+=("#test")
+
+    # Domain keywords → tags
+    [[ "$words" =~ auth ]] && tags+=("#auth")
+    [[ "$words" =~ user ]] && tags+=("#user")
+    [[ "$words" =~ login|logout|session ]] && tags+=("#session")
+    [[ "$words" =~ token|jwt|oauth ]] && tags+=("#token")
+    [[ "$words" =~ api|endpoint|route ]] && tags+=("#api")
+    [[ "$words" =~ database|db|sql|query ]] && tags+=("#database")
+    [[ "$words" =~ cache|redis ]] && tags+=("#cache")
+    [[ "$words" =~ file|path|dir ]] && tags+=("#filesystem")
+    [[ "$words" =~ config|setting|option ]] && tags+=("#config")
+    [[ "$words" =~ error|exception|fail ]] && tags+=("#error")
+    [[ "$words" =~ log|debug|trace ]] && tags+=("#logging")
+    [[ "$words" =~ http|request|response ]] && tags+=("#http")
+    [[ "$words" =~ json|xml|yaml ]] && tags+=("#serialization")
+    [[ "$words" =~ encrypt|decrypt|hash|secret ]] && tags+=("#security")
+    [[ "$words" =~ search|find|filter|sort ]] && tags+=("#search")
+    [[ "$words" =~ render|display|view|template ]] && tags+=("#render")
+    [[ "$words" =~ email|mail|send|notify ]] && tags+=("#notification")
+    [[ "$words" =~ queue|job|task|worker ]] && tags+=("#async")
+    [[ "$words" =~ metric|stat|count|measure ]] && tags+=("#metrics")
+    [[ "$words" =~ index|symbol|outline ]] && tags+=("#index")
+
+    # Kind-based tags
+    [[ "$kind" == "class" ]] && tags+=("#class")
+    [[ "$kind" == "function" && "$words" =~ service$ ]] && tags+=("#service")
+    [[ "$kind" == "function" && "$words" =~ manager$ ]] && tags+=("#manager")
+    [[ "$kind" == "function" && "$words" =~ helper$ ]] && tags+=("#utility")
+    [[ "$kind" == "function" && "$words" =~ util$ ]] && tags+=("#utility")
+
+    # Return unique tags as JSON array (max 5)
+    if [ ${#tags[@]} -gt 0 ]; then
+        printf '%s\n' "${tags[@]}" | sort -u | head -5 | jq -R . | jq -s .
+    else
+        echo "[]"
+    fi
+}
+
+cmd_quickstart() {
+    echo -e "${CYAN}${BOLD}⚡ aOa Quickstart${NC}"
+    echo ""
+
+    # Check services first
+    if ! curl -s --connect-timeout 2 "${INDEX_URL}/health" > /dev/null 2>&1; then
+        echo -e "${RED}✗ aOa services not running${NC}"
+        echo -e "${DIM}Start with: docker start aoa${NC}"
+        return 1
+    fi
+
+    # Get project info
+    local project_id=$(get_project_id)
+    local project_param=""
+    if [ -n "$project_id" ]; then
+        project_param="?project=${project_id}"
+    fi
+
+    # Get index health
+    local health=$(curl -s "${INDEX_URL}/health")
+    local files=$(echo "$health" | jq -r '.local.files // 0')
+    local symbols=$(echo "$health" | jq -r '.local.symbols // 0')
+
+    echo -e "${GREEN}✓${NC} Your codebase is indexed"
+    echo -e "  ${BOLD}${files}${NC} files  │  ${BOLD}${symbols}${NC} symbols"
+    echo ""
+    echo -e "${DIM}Fast search works right now:${NC}"
+    echo -e "  ${CYAN}aoa grep <term>${NC}     Symbol lookup (<5ms)"
+    echo -e "  ${CYAN}aoa egrep <regex>${NC}   Pattern search"
+    echo ""
+
+    # Get pending files for semantic compression
+    local pending_result=$(curl -s "${INDEX_URL}/outline/pending${project_param}")
+    local pending_count=$(echo "$pending_result" | jq -r '.pending_count // 0')
+    local up_to_date=$(echo "$pending_result" | jq -r '.up_to_date_count // 0')
+
+    echo -e "────────────────────────────────────────"
+    echo -e "${BOLD}Semantic Compression${NC}"
+    echo ""
+
+    if [ "$pending_count" -eq 0 ]; then
+        echo -e "${GREEN}✓${NC} All ${up_to_date} files are compressed"
+        echo ""
+        echo -e "${DIM}View any file: aoa outline <file>${NC}"
+        echo -e "${DIM}Search by meaning: aoa grep '#authentication'${NC}"
+        return 0
+    fi
+
+    echo -e "  Tagged:   ${GREEN}${up_to_date}${NC} files"
+    echo -e "  Pending:  ${YELLOW}${pending_count}${NC} files"
+    echo ""
+    echo -e "${DIM}Semantic compression creates a structured outline of your code${NC}"
+    echo -e "${DIM}(functions, classes, methods). This is FREE - runs locally.${NC}"
+    echo ""
+
+    # Show one example
+    local example_file=$(echo "$pending_result" | jq -r '.pending[0].file // empty')
+    if [ -n "$example_file" ]; then
+        echo -e "${BOLD}Example:${NC} ${example_file}"
+        echo ""
+        # Get outline for this file (just a preview)
+        local outline_param=""
+        [ -n "$project_id" ] && outline_param="&project=${project_id}"
+        local outline=$(curl -s "${INDEX_URL}/outline?file=${example_file}${outline_param}")
+        local sym_count=$(echo "$outline" | jq -r '.count // 0')
+        local ms=$(echo "$outline" | jq -r '.ms // 0')
+        printf "  ${CYAN}⚡ ${sym_count} symbols${NC} in ${GREEN}%.1fms${NC}\n" "$ms"
+        echo "$outline" | jq -r '.symbols[:5][] | "    \(.kind) \(.name) [\(.start_line)-\(.end_line)]"' 2>/dev/null
+        local total_syms=$(echo "$outline" | jq -r '.symbols | length')
+        if [ "$total_syms" -gt 5 ]; then
+            echo -e "    ${DIM}... and $((total_syms - 5)) more${NC}"
+        fi
+        echo ""
+    fi
+
+    # Ask user
+    echo -e "────────────────────────────────────────"
+    echo -e "${BOLD}Run semantic compression on all ${pending_count} files?${NC}"
+    echo -e "${DIM}This is free - runs locally, no API calls${NC}"
+    echo -e "${DIM}Estimated time: ~$(( pending_count / 20 + 1 )) seconds${NC}"
+    echo ""
+    read -p "Proceed? [Y/n] " -n 1 -r
+    echo ""
+
+    if [[ ! $REPLY =~ ^[Yy]$ ]] && [[ -n $REPLY ]]; then
+        echo -e "${DIM}Skipped. Run 'aoa quickstart' anytime.${NC}"
+        return 0
+    fi
+
+    echo ""
+    echo -e "${BOLD}Processing ${pending_count} files...${NC}"
+    echo ""
+
+    # Process each pending file
+    local processed=0
+    local errors=0
+
+    local loop_param=""
+    [ -n "$project_id" ] && loop_param="&project=${project_id}"
+
+    local total_tags=0
+
+    while IFS= read -r file; do
+        [ -z "$file" ] && continue
+
+        # Get outline for this file
+        local result=$(curl -s "${INDEX_URL}/outline?file=${file}${loop_param}")
+        local err=$(echo "$result" | jq -r '.error // empty')
+
+        if [ -n "$err" ]; then
+            errors=$((errors + 1))
+        else
+            # Build symbols array with pattern-inferred tags
+            local symbols_with_tags="["
+            local first=true
+
+            while IFS= read -r sym_json; do
+                [ -z "$sym_json" ] && continue
+
+                local sym_name=$(echo "$sym_json" | jq -r '.name')
+                local sym_kind=$(echo "$sym_json" | jq -r '.kind')
+                local sym_line=$(echo "$sym_json" | jq -r '.start_line')
+                local sym_end=$(echo "$sym_json" | jq -r '.end_line')
+
+                # Infer tags from symbol name (free pattern-based)
+                local tags=$(infer_tags_from_name "$sym_name" "$sym_kind")
+                local tag_count=$(echo "$tags" | jq 'length')
+                total_tags=$((total_tags + tag_count))
+
+                # Build symbol object
+                $first || symbols_with_tags+=","
+                first=false
+                symbols_with_tags+="{\"name\":\"${sym_name}\",\"kind\":\"${sym_kind}\",\"line\":${sym_line},\"end_line\":${sym_end},\"tags\":${tags}}"
+
+            done < <(echo "$result" | jq -c '.symbols[]')
+
+            symbols_with_tags+="]"
+
+            # POST to /outline/enriched with inferred tags
+            local mark_payload="{\"file\": \"${file}\", \"project\": \"${project_id}\", \"symbols\": ${symbols_with_tags}}"
+            curl -s -X POST "${INDEX_URL}/outline/enriched" \
+                -H "Content-Type: application/json" \
+                -d "$mark_payload" > /dev/null 2>&1
+            processed=$((processed + 1))
+        fi
+
+        # Progress indicator every 5 files
+        if [ $((processed % 5)) -eq 0 ]; then
+            printf "\r  ${GREEN}✓${NC} ${processed}/${pending_count} files (${total_tags} tags)"
+        fi
+
+    done < <(echo "$pending_result" | jq -r '.pending[].file')
+
+    printf "\r  ${GREEN}✓${NC} ${processed}/${pending_count} files, ${total_tags} tags generated\n"
+    echo ""
+
+    if [ "$errors" -gt 0 ]; then
+        echo -e "${YELLOW}!${NC} ${errors} files had errors (unsupported language)"
+    fi
+
+    echo -e "${GREEN}Done!${NC} Semantic compression complete."
+    echo ""
+    echo -e "  ${BOLD}${total_tags}${NC} tags generated from pattern matching (free)"
+    echo ""
+    echo -e "${DIM}View any file: aoa outline <file> --tags${NC}"
+    echo -e "${DIM}Search by tag: aoa grep '#auth'${NC}"
+    echo ""
+    echo -e "${DIM}Want richer tags? Say \"tag the codebase\" in Claude for AI-powered tagging${NC}"
+}
+
 cmd_baseline() {
     echo -e "${BOLD}aOa Baseline Costs${NC}"
     echo -e "${DIM}Subagent activity tracked from session logs${NC}"
@@ -3246,6 +3473,7 @@ main() {
         repo|r)     cmd_repo "$@" ;;
 
         # System
+        quickstart|qs) cmd_quickstart ;;
         health)     cmd_health ;;
         metrics)    cmd_metrics ;;
         rate)       cmd_rate ;;
