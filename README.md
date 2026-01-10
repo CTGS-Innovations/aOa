@@ -162,39 +162,37 @@ Each project gets its own isolated index. Your work-project doesn't pollute your
 
 ### 3. Say Hello
 
-Open Claude Code in your project and say any of these:
+Open Claude Code in your project and say:
 
 ```
 "Hey aOa"
-"Hey aOa, help me get started"
-"Tag my code"
 ```
 
-aOa responds:
+Claude responds:
 
 ```
-⚡ aOa activated for your-project
+⚡ aOa activated
 
-Let me run a free background agent to semantically compress your codebase.
-This doesn't use any of your tokens—it runs in the background while you work.
+Your codebase is already indexed—fast symbol search works right now.
+Try it: `aoa grep [anything]`
 
-Takes about 2-3 minutes. Watch progress anytime:
+I found 247 files that need semantic compression.
+Let me tag these in the background. This is FREE—doesn't use your tokens.
+
+Takes about 2-3 minutes. To watch progress, open another terminal:
   aoa intent
 
-Indexing 247 files...
-  src/auth.py          #auth #session #middleware #jwt
-  src/api/routes.py    #routes #handlers #validation
-  src/db/models.py     #database #orm #user #schema
-  ...
-
-✓ Ready │ 247 files │ 892 symbols
-
-I'm ready to help. Just ask me to find anything.
+Keep coding. I'm not blocking you.
+Once done, I'll find code by meaning, not just keywords.
 ```
 
-That's it. **Free. Background. No tokens.** Just semantic understanding of your code.
+That's it:
+- ✅ **Search works NOW** (indexing already done)
+- ✅ **Semantic tagging is FREE** (background, doesn't use your tokens)
+- ✅ **Not blocking** (keep coding)
+- ✅ **Watch progress:** `aoa intent` in another terminal
 
-Run `aoa intent` anytime to see it working:
+After tagging completes, you'll see the status line:
 
 ```
 ⚡ aOa 🟢 42 │ ↓12k ⚡1m30s saved │ ctx:28k/200k (14%) │ Opus 4.5
@@ -257,17 +255,62 @@ This isn't for people who love configuring tools. It's for people who want to sh
 
 ---
 
+## How It Works
+
+**One install. Many projects.**
+
+```
+~/.aoa/                  ← Global install (Docker services, CLI)
+├── your-work-project/   ← aoa init (hooks, indexed, isolated)
+├── your-side-project/   ← aoa init (hooks, indexed, isolated)
+└── another-project/     ← aoa init (hooks, indexed, isolated)
+```
+
+Each project gets its own index. Your work doesn't pollute your side project.
+
+---
+
 ## The Bottom Line
 
-Open source. MIT licensed. Runs locally in Docker. Your code never leaves your machine.
-
-Built by a growth hacker who asked one question: *What if we just watched Claude work and learned from it?*
-
-Turns out, that's all you need.
+**Less than one minute.** Clone, install, init. Done.
 
 ```bash
+# One-time global install
 git clone https://github.com/CTGS-Innovations/aOa && cd aOa && ./install.sh
+
+# Enable in any project
+cd your-project && aoa init
 ```
+
+Your codebase is already indexed. You're already searching faster. You're already saving tokens.
+
+---
+
+## Why Not a Plugin?
+
+We'd love to make this a one-click Claude Code plugin. But the architecture requires background services—indexing, prediction, intent capture—that plugins can't provide yet.
+
+So it runs as Docker. Single container or docker-compose. Your choice.
+
+**Fully transparent.** Look at every line of code. Nothing hidden. Nothing phoning home.
+
+---
+
+## Not For You?
+
+No hard feelings.
+
+**Remove from a project:**
+```bash
+aoa remove
+```
+
+**Full uninstall (global):**
+```bash
+cd ~/.aoa && ./install.sh --uninstall
+```
+
+Everything gets removed. We leave no trace. **Boy Scouts.**
 
 ---
 

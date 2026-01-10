@@ -220,32 +220,104 @@ EOFREADME
 
 # aOa Integration
 
-**Why:** aOa provides O(1) symbol search. Instead of slow Grep/Glob, find code in <5ms.
+**CRITICAL: Use `aoa grep` instead of Grep/Glob. It's 10-100x faster.**
 
-**Commands:**
-- `aoa search <term>` - Find code fast (ALWAYS use instead of Grep)
-- `aoa outline <file>` - See file structure without reading it all
-- `aoa intent` - Track what you're working on
+## Quickstart Triggers
 
-**Rule:** Use `aoa` CLI, never raw curl. See `.aoa/USAGE.md` for full guide.
+When user says **"Hey aOa"**, **"Tag my code"**, or **"aOa quickstart"**:
+
+1. Run `aoa outline --pending --json` to check pending files
+2. Respond with this (DO NOT read any files first):
+
+```
+⚡ aOa activated
+
+Your codebase is already indexed—fast symbol search works right now.
+Try it: `aoa grep [anything]`
+
+I found [X] files that need semantic compression.
+Let me tag these in the background. This is FREE—doesn't use your tokens.
+
+Takes about 2-3 minutes. To watch progress, open another terminal:
+  aoa intent
+
+Keep coding. I'm not blocking you.
+Once done, I'll find code by meaning, not just keywords.
+```
+
+3. Launch: `Task(subagent_type="aoa-outline", prompt="Tag all pending files", run_in_background=true)`
+
+## Commands
+
+| Command | Use For |
+|---------|---------|
+| `aoa grep <term>` | Find code fast (ALWAYS use instead of Grep) |
+| `aoa grep "a b c"` | Multi-term OR search |
+| `aoa grep -a a,b,c` | Multi-term AND search |
+| `aoa outline <file>` | See file structure without reading it all |
+| `aoa intent` | Track what's being worked on |
+
+## Rules
+
+- ✅ ALWAYS use `aoa grep` instead of Grep/Glob
+- ✅ Read specific line ranges from aOa results (not whole files)
+- ❌ DO NOT use subagents for codebase exploration (hooks don't work in subagents)
+
+See `.aoa/USAGE.md` for full guide.
 EOFCLAUDE
             echo -e "${GREEN}✓${NC} ${DIM}(appended)${NC}"
         else
             echo -e "${YELLOW}✓${NC} ${DIM}(already present)${NC}"
         fi
     else
-        # Create minimal CLAUDE.md with aOa section
+        # Create CLAUDE.md with full aOa section
         cat > "$claude_md" << 'EOFCLAUDE'
 # aOa Integration
 
-**Why:** aOa provides O(1) symbol search. Instead of slow Grep/Glob, find code in <5ms.
+**CRITICAL: Use `aoa grep` instead of Grep/Glob. It's 10-100x faster.**
 
-**Commands:**
-- `aoa search <term>` - Find code fast (ALWAYS use instead of Grep)
-- `aoa outline <file>` - See file structure without reading it all
-- `aoa intent` - Track what you're working on
+## Quickstart Triggers
 
-**Rule:** Use `aoa` CLI, never raw curl. See `.aoa/USAGE.md` for full guide.
+When user says **"Hey aOa"**, **"Tag my code"**, or **"aOa quickstart"**:
+
+1. Run `aoa outline --pending --json` to check pending files
+2. Respond with this (DO NOT read any files first):
+
+```
+⚡ aOa activated
+
+Your codebase is already indexed—fast symbol search works right now.
+Try it: `aoa grep [anything]`
+
+I found [X] files that need semantic compression.
+Let me tag these in the background. This is FREE—doesn't use your tokens.
+
+Takes about 2-3 minutes. To watch progress, open another terminal:
+  aoa intent
+
+Keep coding. I'm not blocking you.
+Once done, I'll find code by meaning, not just keywords.
+```
+
+3. Launch: `Task(subagent_type="aoa-outline", prompt="Tag all pending files", run_in_background=true)`
+
+## Commands
+
+| Command | Use For |
+|---------|---------|
+| `aoa grep <term>` | Find code fast (ALWAYS use instead of Grep) |
+| `aoa grep "a b c"` | Multi-term OR search |
+| `aoa grep -a a,b,c` | Multi-term AND search |
+| `aoa outline <file>` | See file structure without reading it all |
+| `aoa intent` | Track what's being worked on |
+
+## Rules
+
+- ✅ ALWAYS use `aoa grep` instead of Grep/Glob
+- ✅ Read specific line ranges from aOa results (not whole files)
+- ❌ DO NOT use subagents for codebase exploration (hooks don't work in subagents)
+
+See `.aoa/USAGE.md` for full guide.
 EOFCLAUDE
         echo -e "${GREEN}✓${NC} ${DIM}(created)${NC}"
     fi

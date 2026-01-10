@@ -45,6 +45,41 @@ When the user addresses an agent by name using "Hey [AgentName]", spawn that age
 | "Hey 131" | 131 | Research-only problem solving with parallel solution discovery |
 | "Hey GH" | gh | Growth Hacker - solutions architect, problem decomposer |
 
+### aOa Quickstart (SPECIAL - No Agent Exploration)
+
+When user says **"Hey aOa"**, **"Tag my code"**, or **"aOa quickstart"**:
+
+**DO NOT read any files. Just run these commands and respond:**
+
+1. Run `aoa outline --pending --json` to check pending files
+2. Respond immediately with this flow:
+
+```
+⚡ aOa activated
+
+Your codebase is already indexed—fast symbol search works right now.
+Try it: `aoa grep [anything]`
+
+I found [X] files that need semantic compression.
+Let me tag these in the background. This is FREE—doesn't use your tokens.
+
+Takes about 2-3 minutes. To watch progress, open another terminal:
+  aoa intent
+
+Keep coding. I'm not blocking you.
+Once done, I'll find code by meaning, not just keywords.
+```
+
+3. Launch background tagging:
+   `Task(subagent_type="aoa-outline", prompt="Tag all pending files", run_in_background=true)`
+
+**What to communicate:**
+- ✅ Indexing already done (search works NOW)
+- ✅ Semantic compression starting (background, FREE)
+- ✅ Not blocking (keep coding)
+- ✅ Visibility: `aoa intent` in another terminal
+- ✅ Benefit: find code by meaning when done
+
 ### ⚠️ Subagents Don't Get Hooks
 
 **DO NOT use subagents for codebase exploration.** Subagents run in a separate context and don't trigger aOa hooks. This means:
