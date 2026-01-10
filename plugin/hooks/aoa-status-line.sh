@@ -186,10 +186,54 @@ fi
 HIT_PCT=$(echo "$METRICS" | jq -r '.rolling.hit_at_5_pct // 0')
 HIT_PCT_INT=$(printf "%.0f" "$HIT_PCT")
 TOKENS_SAVED=$(echo "$METRICS" | jq -r '.savings.tokens // 0')
-TIME_SAVED_SEC=$(echo "$METRICS" | jq -r '.savings.time_sec // 0')
-TIME_SAVED_SEC_INT=$(printf "%.0f" "$TIME_SAVED_SEC")
 ROLLING_HITS=$(echo "$METRICS" | jq -r '.rolling.hits // 0')
 EVALUATED=$(echo "$METRICS" | jq -r '.rolling.evaluated // 0')
+
+# Calculate dynamic time savings using rolling average (same as aoa intent)
+TIME_SAVED_SEC_INT=0
+if [ "$TOKENS_SAVED" -gt 0 ] 2>/dev/null; then
+    RATE_MS=$(python3 -c "
+import json, os
+from pathlib import Path
+from datetime import datetime
+home = os.path.expanduser('~')
+pd = Path(home) / '.claude' / 'projects'
+if not pd.exists(): print('4'); exit()
+sessions = []
+for d in sorted(pd.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True)[:2]:
+    sessions.extend(sorted(d.glob('*.jsonl'), key=lambda p: p.stat().st_mtime, reverse=True)[:3])
+now = datetime.now().astimezone()
+rates = []
+for sf in sessions[:5]:
+    try:
+        msgs = []
+        for line in open(sf):
+            try:
+                e = json.loads(line.strip())
+                if e.get('type') == 'assistant' and 'message' in e:
+                    m = e['message']
+                    if 'usage' in m and 'timestamp' in e:
+                        ts = datetime.fromisoformat(e['timestamp'].replace('Z', '+00:00'))
+                        tok = m['usage'].get('input_tokens', 0) + m['usage'].get('output_tokens', 0)
+                        msgs.append((ts, tok))
+            except: pass
+        for i in range(1, len(msgs)):
+            dur = (msgs[i][0] - msgs[i-1][0]).total_seconds() * 1000
+            tok = msgs[i][1]
+            age = (now - msgs[i][0]).total_seconds() / 60
+            if 100 < dur < 15000 and tok > 200 and age <= 30:
+                r = dur / tok
+                if r < 20: rates.append(r)
+    except: pass
+if rates:
+    rates.sort()
+    print(round(rates[len(rates)//4], 1))
+else:
+    print('4')
+" 2>/dev/null)
+    RATE_MS=${RATE_MS:-4}
+    TIME_SAVED_SEC_INT=$(awk "BEGIN {printf \"%.0f\", $TOKENS_SAVED * $RATE_MS / 1000}")
+fi
 
 # Get intent count from API (per-project)
 INTENT_URL="${AOA_URL}/intent/stats"

@@ -365,6 +365,116 @@ class SessionLogParser:
             }
         }
 
+    def calculate_token_rate(self, sample_size: int = 100) -> dict:
+        """
+        Calculate actual ms_per_token rate from session history.
+
+        Analyzes timestamps and token counts from recent messages to derive
+        the real processing rate on this system. This rate can be used to
+        estimate time savings from token savings.
+
+        Args:
+            sample_size: Number of recent messages to analyze
+
+        Returns:
+            Dict with calculated rate and confidence metrics
+        """
+        from datetime import datetime
+
+        sessions = self.list_all_sessions()
+        if not sessions:
+            return {'ms_per_token': 0, 'samples': 0, 'confidence': 'none'}
+
+        # Collect (duration_ms, tokens) pairs
+        measurements = []
+
+        for session_file in sessions[-10:]:  # Last 10 sessions
+            try:
+                messages = []
+                with open(session_file, 'r') as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            event = json.loads(line)
+                            if event.get('type') == 'assistant' and 'message' in event:
+                                msg = event['message']
+                                if 'usage' in msg and 'timestamp' in event:
+                                    messages.append({
+                                        'timestamp': event['timestamp'],
+                                        'tokens': msg['usage'].get('input_tokens', 0) + msg['usage'].get('output_tokens', 0)
+                                    })
+                        except json.JSONDecodeError:
+                            continue
+
+                # Calculate duration between consecutive messages
+                for i in range(1, len(messages)):
+                    try:
+                        # Parse ISO timestamps
+                        t1 = datetime.fromisoformat(messages[i-1]['timestamp'].replace('Z', '+00:00'))
+                        t2 = datetime.fromisoformat(messages[i]['timestamp'].replace('Z', '+00:00'))
+                        duration_ms = (t2 - t1).total_seconds() * 1000
+                        tokens = messages[i]['tokens']
+
+                        # Filter outliers (>60s or <10ms probably not representative)
+                        if 10 < duration_ms < 60000 and tokens > 0:
+                            measurements.append({
+                                'duration_ms': duration_ms,
+                                'tokens': tokens,
+                                'rate': duration_ms / tokens
+                            })
+
+                        if len(measurements) >= sample_size:
+                            break
+                    except (ValueError, TypeError):
+                        continue
+
+                if len(measurements) >= sample_size:
+                    break
+
+            except Exception:
+                continue
+
+        if not measurements:
+            return {'ms_per_token': 0, 'samples': 0, 'confidence': 'none'}
+
+        # Calculate statistics
+        rates = [m['rate'] for m in measurements]
+        avg_rate = sum(rates) / len(rates)
+
+        # Use median for robustness against outliers
+        sorted_rates = sorted(rates)
+        median_rate = sorted_rates[len(sorted_rates) // 2]
+
+        # Calculate range for display
+        min_rate = min(rates)
+        max_rate = max(rates)
+        p25 = sorted_rates[len(sorted_rates) // 4] if len(sorted_rates) >= 4 else min_rate
+        p75 = sorted_rates[3 * len(sorted_rates) // 4] if len(sorted_rates) >= 4 else max_rate
+
+        # Confidence based on sample size
+        if len(measurements) >= 50:
+            confidence = 'high'
+        elif len(measurements) >= 20:
+            confidence = 'medium'
+        else:
+            confidence = 'low'
+
+        return {
+            'ms_per_token': round(median_rate, 3),
+            'avg_ms_per_token': round(avg_rate, 3),
+            'range': {
+                'min': round(min_rate, 3),
+                'max': round(max_rate, 3),
+                'p25': round(p25, 3),
+                'p75': round(p75, 3)
+            },
+            'samples': len(measurements),
+            'confidence': confidence,
+            'methodology': 'Calculated from session message timestamps and token counts'
+        }
+
     def list_all_sessions(self) -> List[Path]:
         """List all session files (both agent-*.jsonl and regular *.jsonl)."""
         if not self.base_path.exists():

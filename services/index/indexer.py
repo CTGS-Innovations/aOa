@@ -1020,6 +1020,10 @@ class IntentIndex:
 
             tokens_saved = max(0, total_baseline - total_actual)
 
+            # Estimate time savings using conservative 7.5ms/token (middle of 5-10ms range)
+            # Based on documented LLM processing rates: 100-500 tokens/sec input, 20-100 output
+            time_sec = tokens_saved * 0.0075  # 7.5ms per token
+
             return {
                 'total_records': len(self.timeline[proj]),
                 'unique_tags': len(self.tag_to_files[proj]),
@@ -1028,6 +1032,7 @@ class IntentIndex:
                 'project_id': project_id,
                 'savings': {
                     'tokens': tokens_saved,
+                    'time_sec': round(time_sec, 1),  # Estimated seconds saved
                     'baseline': total_baseline,
                     'actual': total_actual,
                     'measured_records': measured_count
@@ -2059,6 +2064,54 @@ def intent_stats():
     return jsonify(intent_index.get_stats(project_id))
 
 
+@app.route('/metrics/token-rate')
+def metrics_token_rate():
+    """
+    Calculate actual ms_per_token rate from session history.
+
+    Derives the real processing rate from Claude session timestamps and token counts.
+    This rate can be used to estimate time savings from token savings.
+
+    Returns:
+        ms_per_token: Median milliseconds per token processed
+        range: Min/max/p25/p75 for showing variability
+        samples: Number of data points analyzed
+        confidence: high (50+), medium (20+), or low (<20)
+        methodology: How the rate was calculated
+    """
+    from services.ranking.session_parser import SessionLogParser
+    from pathlib import Path
+    import os
+
+    # Find Claude projects directory
+    home = os.path.expanduser('~')
+    projects_dir = Path(home) / '.claude' / 'projects'
+
+    if not projects_dir.exists():
+        return jsonify({
+            'ms_per_token': 0,
+            'samples': 0,
+            'confidence': 'none',
+            'error': 'No Claude projects directory found'
+        })
+
+    # Get the most recent project directory
+    project_dirs = sorted(projects_dir.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True)
+    if not project_dirs:
+        return jsonify({
+            'ms_per_token': 0,
+            'samples': 0,
+            'confidence': 'none',
+            'error': 'No session data found'
+        })
+
+    # Use the most recent project for rate calculation
+    parser = SessionLogParser(project_dirs[0])
+    rate_data = parser.calculate_token_rate()
+
+    return jsonify(rate_data)
+
+
 # ============================================================================
 # Prediction Tracking API - Phase 2 Session Correlation + Phase 4 Rolling Metrics
 # ============================================================================
@@ -2666,13 +2719,14 @@ def get_metrics():
 
         # Total savings = Redis + Intent (Intent is the primary/real source)
         total_tokens_saved = tokens_saved + intent_savings.get('tokens', 0)
+        # Get time_sec from intent_savings (calculated at 7.5ms per token)
+        intent_time_sec = intent_savings.get('time_sec', 0)
         savings_data = {
             'tokens': total_tokens_saved,
             'baseline': intent_savings.get('baseline', 0),
             'actual': intent_savings.get('actual', 0),
             'measured_records': intent_savings.get('measured_records', 0),
-            'time_ms': time_saved_ms,
-            'time_sec': round(time_saved_ms / 1000, 1),
+            'time_sec': intent_time_sec,  # Estimated from token savings
         }
 
         return jsonify({
