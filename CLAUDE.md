@@ -121,25 +121,33 @@ Grep("session") # call 3
 aoa search "auth login session"  # ONE call, ranked results
 ```
 
-## Rule #4: Two Search Modes
+## Rule #4: Three Search Modes
 
-**Symbol Lookup (O(1) - instant):**
+**Symbol Lookup (O(1) - instant, full index):**
 ```bash
 aoa search tree_sitter                  # exact symbol
-aoa search "auth session token"         # multi-term ranked
+aoa search "auth session token"         # multi-term OR search, ranked
+```
+**Note:** Space-separated terms are OR search, not phrase search.
+
+**Multi-Term Intersection (full index):**
+```bash
+aoa multi auth,session,token            # files containing ALL terms (AND)
 ```
 
-**Pattern Search (regex - scans files):**
+**Pattern Search (regex - working set only ~30-50 files):**
 ```bash
 aoa pattern '{"match": "tree.sitter"}'       # regex
 aoa pattern '{"func": "def\\s+handle\\w+"}'  # find patterns
 ```
+**Warning:** Pattern search only scans local/recent files, not full codebase.
 
 **When to use which:**
-- `aoa search` → Know the symbol, need speed
-- `aoa pattern` → Need regex matching
+- `aoa search` → Know the symbol, need speed, OR logic
+- `aoa multi` → Need files matching ALL terms (AND logic)
+- `aoa pattern` → Need regex matching (working set only)
 
-**Note:** `aoa search` tokenizes on word boundaries. Hyphens break tokens.
+**Tokenization:** Hyphens and dots break tokens (`app.post` → `app`, `post`).
 
 ## Commands
 
