@@ -5,16 +5,19 @@
 
 ---
 
-## Quick Reference
+## Quick Reference (Unix-style Commands)
 
 | I want to... | Command | Scope | Speed |
 |--------------|---------|-------|-------|
-| Find a symbol | `aoa search handleAuth` | Full index | <1ms |
-| Find files with ANY term | `aoa search "auth token"` | Full index | <5ms |
-| Find files with ALL terms | `aoa multi auth,token,session` | Full index | ~3ms |
-| Search with regex | `aoa pattern '{"match": "TODO"}'` | Working set | ~3ms |
+| Find a symbol | `aoa grep handleAuth` | Full index | <1ms |
+| Find files with ANY term | `aoa grep "auth token"` | Full index | <5ms |
+| Find files with ALL terms | `aoa grep -a auth,token` | Full index | ~3ms |
+| Search with regex | `aoa egrep "TODO\|FIXME"` | Working set | ~20ms |
+| Find files by pattern | `aoa find "*.py"` | Full index | <10ms |
+| Find files by name | `aoa locate handler` | Full index | <5ms |
 | See file structure | `aoa outline src/auth.js` | Single file | ~5ms |
-| Find by semantic tag | `aoa search "#authentication"` | Tagged files | <1ms |
+| Find by semantic tag | `aoa grep "#authentication"` | Tagged files | <1ms |
+| Filter by time | `aoa grep auth --since 1h` | Full index | <5ms |
 
 **Scope definitions:**
 - **Full index**: All indexed files in project (hundreds/thousands)
@@ -27,11 +30,14 @@
 
 **Goal:** Locate where something is implemented
 
-**Use:** `aoa search <term>` or spawn `aoa-scout` agent
+**Use:** `aoa grep <term>` or spawn `aoa-scout` agent
 
 ```bash
-aoa search "handleAuth"           # Single term
-aoa search "auth session token"   # Multi-term ranked (OR search)
+aoa grep handleAuth              # Single term
+aoa grep "auth session token"    # Multi-term OR (ranked)
+aoa grep -a auth,session,token   # Multi-term AND (all required)
+aoa grep auth --since 1h         # Modified in last hour
+aoa grep auth --today            # Modified today
 ```
 
 **Result:** Exact file:line in <5ms (not slow grep scanning)
@@ -56,6 +62,7 @@ aoa search "auth session token"   # Multi-term ranked (OR search)
 
 ```bash
 aoa outline src/auth/handler.py
+aoa outline src/auth/handler.py --tags   # With AI-generated tags
 ```
 
 **Result:** Symbol map with line ranges - read only what matters
@@ -90,20 +97,20 @@ aoa outline src/auth/handler.py
 
 **Single term** - exact symbol match:
 ```bash
-aoa search handleAuth              # finds "handleAuth" symbol
+aoa grep handleAuth              # finds "handleAuth" symbol
 ```
 
 **Multi-term (space-separated)** - OR search, ranked by relevance:
 ```bash
-aoa search "auth session token"    # finds symbols matching ANY term, ranked
+aoa grep "auth session token"    # finds symbols matching ANY term, ranked
 ```
 **Note:** This is NOT phrase search. `"auth session"` won't find the exact phrase - it finds files containing "auth" OR "session", ranked by match quality.
 
 ### 2. Multi-Term Intersection (full index)
 
-**Comma-separated** - AND search, files must contain ALL terms:
+**Comma-separated with -a flag** - AND search, files must contain ALL terms:
 ```bash
-aoa multi auth,session,token       # files must contain all three terms
+aoa grep -a auth,session,token   # files must contain all three terms
 ```
 Use this when you need intersection, not union.
 
@@ -113,34 +120,59 @@ Pattern search scans **local/recent files only** (~30-50 files), not the full in
 Use this for regex matching within your current working context.
 
 ```bash
-aoa pattern '{"match": "TODO|FIXME"}'            # regex in working set
-aoa pattern '{"func": "async\\s+function"}'      # function patterns
+aoa egrep "TODO|FIXME"            # regex in working set
+aoa egrep "async\\s+function"     # function patterns
 ```
 
 **Scope limitation:** For full-codebase pattern search, use:
 ```bash
-aoa search TODO                    # symbol lookup (full index, O(1))
-# OR
-grep -r "pattern" .                # traditional grep (slower but complete)
+aoa grep TODO                    # symbol lookup (full index, O(1))
+```
+
+---
+
+## Time Filtering (NEW)
+
+Filter search results by file modification time:
+
+```bash
+aoa grep auth --since 1h         # Modified in last hour
+aoa grep auth --since 7d         # Modified in last week
+aoa grep auth --before 1d        # Modified more than a day ago
+aoa grep auth --today            # Modified in last 24h (shortcut)
+```
+
+Time units: `s` (seconds), `m` (minutes), `h` (hours), `d` (days)
+
+---
+
+## Output Flags (NEW)
+
+Control output format:
+
+```bash
+aoa grep auth --json             # Raw JSON output
+aoa grep auth -c                 # Count only
+aoa grep auth -q                 # Quiet (exit code only)
 ```
 
 ---
 
 ## Tokenization Rules
 
-`aoa search` tokenizes on word boundaries. Understanding this prevents "0 hits" surprises:
+`aoa grep` tokenizes on word boundaries. Understanding this prevents "0 hits" surprises:
 
 | Pattern | Tokens | How to Search |
 |---------|--------|---------------|
-| `tree_sitter` | `tree_sitter` | `aoa search tree_sitter` |
-| `tree-sitter` | `tree`, `sitter` | `aoa search tree` or `aoa multi tree,sitter` |
-| `treeSitter` | `treeSitter` | `aoa search treeSitter` |
-| `app.post` | `app`, `post` | `aoa pattern '{"match": "app\\.post"}'` |
-| `module.exports` | `module`, `exports` | `aoa search exports` or `aoa multi module,exports` |
+| `tree_sitter` | `tree_sitter` | `aoa grep tree_sitter` |
+| `tree-sitter` | `tree`, `sitter` | `aoa grep tree` or `aoa grep -a tree,sitter` |
+| `treeSitter` | `treeSitter` | `aoa grep treeSitter` |
+| `app.post` | `app`, `post` | `aoa egrep "app\\.post"` |
+| `module.exports` | `module`, `exports` | `aoa grep exports` or `aoa grep -a module,exports` |
 
-**Tip:** When searching for hyphenated or dot-notation terms, use `aoa multi` with comma separation:
+**Tip:** When searching for hyphenated or dot-notation terms, use `aoa grep -a` with comma separation:
 ```bash
-aoa multi voice,app               # finds "voice-app", "voice_app", etc.
+aoa grep -a voice,app             # finds "voice-app", "voice_app", etc.
 ```
 
 ---
@@ -150,48 +182,48 @@ aoa multi voice,app               # finds "voice-app", "voice_app", etc.
 ### Expecting phrase/proximity search
 ```bash
 # What users try:
-aoa search "error handling"        # expects exact phrase
+aoa grep "error handling"        # expects exact phrase
 
 # What actually happens:
 # Finds symbols matching "error" OR "handling", ranked by relevance
 
 # What to use instead:
-aoa multi error,handling           # files containing BOTH terms
-aoa pattern '{"match": "error.*handling"}'  # regex (working set only)
+aoa grep -a error,handling       # files containing BOTH terms
+aoa egrep "error.*handling"      # regex (working set only)
 ```
 
-### Using pattern for full codebase search
+### Using egrep for full codebase search
 ```bash
 # What users try:
-aoa pattern '{"match": "module\\.exports"}'  # expects all 700+ files
+aoa egrep "module\\.exports"     # expects all 700+ files
 
 # What actually happens:
 # Only scans ~30-50 local/recent files
 
 # What to use instead:
-aoa search exports                 # symbol lookup (full index)
-aoa multi module,exports           # intersection search
+aoa grep exports                 # symbol lookup (full index)
+aoa grep -a module,exports       # intersection search
 ```
 
 ### Searching for dot-notation patterns
 ```bash
 # What users try:
-aoa search app.post                # fails - dot breaks tokenization
+aoa grep app.post                # fails - dot breaks tokenization
 
 # What to use instead:
-aoa pattern '{"match": "app\\.post"}'  # regex (escape the dot)
-aoa search post                    # then filter results manually
+aoa egrep "app\\.post"           # regex (escape the dot)
+aoa grep post                    # then filter results manually
 ```
 
 ---
 
 ## Rules
 
-1. **Always use `aoa search`** - Never Grep or Glob
+1. **Always use `aoa grep`** - Never Grep or Glob (built-in)
 2. **Always use `aoa outline`** - Never raw curl to API
 3. **Read specific lines** - Use file:line from search results, don't read whole files
 4. **Use underscores in search** - Hyphens and dots split tokens
-5. **Use `aoa multi` for AND** - Space-separated is OR, comma-separated is AND
+5. **Use `aoa grep -a` for AND** - Space-separated is OR, comma with `-a` is AND
 
 ---
 
@@ -211,15 +243,15 @@ aoa search post                    # then filter results manually
 ### "0 hits" for a term I know exists
 
 1. **Check tokenization:** Hyphens and dots break tokens
-   - `app.post` → search for `post` or use `aoa pattern`
-   - `my-component` → search for `component` or use `aoa multi my,component`
-2. **Try `aoa multi`** with individual words
-3. **Use `aoa pattern`** for exact string matching (working set only)
+   - `app.post` → search for `post` or use `aoa egrep`
+   - `my-component` → search for `component` or use `aoa grep -a my,component`
+2. **Try `aoa grep -a`** with individual words
+3. **Use `aoa egrep`** for exact string matching (working set only)
 
 ### Pattern search returns fewer results than expected
 
 Pattern search only scans working set (~30-50 files). For full codebase:
-- Use `aoa search` for symbol lookup
+- Use `aoa grep` for symbol lookup
 - Use traditional `grep -r` for exhaustive pattern matching
 
 ### Predictions showing low confidence (30-40%)
@@ -235,13 +267,6 @@ Run the `aoa-outline` agent to generate semantic tags:
 ```bash
 # In Claude Code, spawn aoa-outline agent
 # Or manually: aoa outline --store <file>
-```
-
-### File count looks wrong (API pagination)
-
-The `/files` endpoint defaults to `limit=50`. For full count:
-```bash
-curl -s "localhost:8080/files?project=<id>&limit=1000" | jq '.results | length'
 ```
 
 ---

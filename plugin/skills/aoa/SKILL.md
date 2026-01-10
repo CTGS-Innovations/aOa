@@ -4,76 +4,71 @@ description: Fast codebase search using aOa. Use instead of Grep/Glob for findin
 allowed-tools: Bash
 ---
 
-# aOa Search
+# aOa Search (Unix-style Commands)
 
 > **Use aOa instead of Grep/Glob.** It's faster, ranked, and context-aware.
+> These commands mirror Unix conventions but are 10-100x faster via indexing.
 
 ## Quick Reference
 
 | Command | Use For | Speed |
 |---------|---------|-------|
-| `aoa search <term>` | Find any symbol/term | <5ms |
-| `aoa multi <t1,t2>` | Multi-term ranked search | <10ms |
-| `aoa context "<intent>"` | Predictive files from natural language | <100ms |
-| `aoa pattern '<json>'` | Complex regex patterns | <50ms |
+| `aoa grep <term>` | Symbol search (O(1) indexed) | <1ms |
+| `aoa grep "a b c"` | Multi-term OR search, ranked | <5ms |
+| `aoa grep -a t1,t2` | Multi-term AND (all required) | <5ms |
+| `aoa egrep "regex"` | Regex pattern (working set) | ~20ms |
+| `aoa find "*.py"` | File discovery by pattern | <10ms |
+| `aoa locate name` | Fast filename search | <5ms |
+| `aoa tree [dir]` | Directory structure | <50ms |
 | `aoa changes [time]` | Recently modified files | <10ms |
+| `aoa hot` | Frequently accessed files | <10ms |
 | `aoa intent recent` | See current work patterns | <50ms |
 
 ## Commands
 
-### 1. Basic Search: `aoa search <term>`
+### 1. Symbol Search: `aoa grep <term>`
 
 Find any symbol, function, class, or term in the codebase.
 
 ```bash
-aoa search handleAuth
-aoa search "error handling"
+aoa grep handleAuth           # Single term
+aoa grep "auth session token" # Multi-term OR (ranked)
+aoa grep -a auth,session      # Multi-term AND (all required)
+aoa grep auth --since 1h      # Modified in last hour
+aoa grep auth --today         # Modified today (last 24h)
+aoa grep auth --json          # JSON output
+aoa grep auth -c              # Count only
 ```
 
 **Output:** `file:line` for all matches, ranked by relevance.
 
 **Use instead of:** `Grep`, `Glob`, `find`
 
-### 2. Multi-Term Search: `aoa multi <t1,t2,...>`
+### 2. Regex Search: `aoa egrep "regex"`
 
-Search for multiple related terms at once, get ranked results.
-
-```bash
-aoa multi auth,session,token
-aoa multi error,exception,catch
-```
-
-**Use instead of:** Multiple Grep calls
-
-### 3. Context Search: `aoa context "<intent>"`
-
-Predictive file finding from natural language. Uses intent analysis + transition patterns.
+Pattern matching with regex (searches working set ~30-50 files).
 
 ```bash
-aoa context "fix authentication bug"
-aoa context "add new API endpoint"
-aoa context "update the login flow"
+aoa egrep "TODO|FIXME"           # Simple regex
+aoa egrep "def\\s+handle\\w+"    # Function patterns
+aoa egrep "class.*Handler"       # Class patterns
 ```
 
-**Returns:** Top 5 predicted files with relevant code snippets.
+**Use instead of:** `grep -E`, `rg`
 
-**Best for:** Starting a new task, finding where to look first.
+### 3. File Discovery: `aoa find` / `aoa locate`
 
-### 4. Pattern Search: `aoa pattern '<json>'`
-
-Complex multi-pattern regex search for sophisticated queries.
+Find files by pattern or name.
 
 ```bash
-aoa pattern '{"patterns": ["def.*auth", "class.*Handler"]}'
-aoa pattern '{"patterns": ["import.*redis"], "since": "7d"}'
+aoa find "*.py"              # Glob pattern
+aoa find --lang python       # By language
+aoa locate handler           # Fast filename search
 ```
 
-**Options:**
-- `patterns`: Array of regex patterns
-- `since`: Only files modified recently (e.g., "7d", "1h")
-- `repo`: Search in specific knowledge repo
+**Use instead of:** `find`, `ls -R`
 
-### 5. Recent Changes: `aoa changes [time]`
+### 4. Recent Changes: `aoa changes [time]`
 
 Find files modified recently.
 
@@ -81,6 +76,15 @@ Find files modified recently.
 aoa changes        # Last hour
 aoa changes 5m     # Last 5 minutes
 aoa changes 1d     # Last day
+```
+
+### 5. Behavioral Commands
+
+```bash
+aoa hot            # Frequently accessed files
+aoa touched        # Files from current session
+aoa focus          # Current working context
+aoa predict        # Next likely files
 ```
 
 ### 6. Intent Tracking: `aoa intent recent`
@@ -95,11 +99,11 @@ aoa intent tags         # All semantic tags
 
 ## Decision Tree
 
-1. **Know what you're looking for?** → `aoa search <term>`
-2. **Multiple related concepts?** → `aoa multi <t1,t2>`
-3. **Starting a task, need context?** → `aoa context "<intent>"`
-4. **Complex regex needed?** → `aoa pattern '<json>'`
-5. **What changed recently?** → `aoa changes`
+1. **Know what you're looking for?** → `aoa grep <term>`
+2. **Multiple related concepts?** → `aoa grep "term1 term2"` (OR) or `aoa grep -a t1,t2` (AND)
+3. **Need regex matching?** → `aoa egrep "pattern"` (working set only)
+4. **Find files by pattern?** → `aoa find "*.py"` or `aoa locate name`
+5. **What changed recently?** → `aoa changes` or `aoa grep --today`
 6. **What's being worked on?** → `aoa intent recent`
 
 ## Efficiency
@@ -107,7 +111,7 @@ aoa intent tags         # All semantic tags
 | Approach | Tool Calls | Tokens | Time |
 |----------|------------|--------|------|
 | Grep + Read loops | 7 | 8,500 | 2.6s |
-| aoa search | 1-2 | 1,150 | 54ms |
+| aoa grep | 1-2 | 1,150 | 54ms |
 | **Savings** | **71%** | **86%** | **98%** |
 
 ## Tips
@@ -119,4 +123,6 @@ aoa intent tags         # All semantic tags
 
 2. **Don't read entire files** - Use the line numbers aOa gives you.
 
-3. **Combine with intent** - Use `aoa context` first, then `aoa search` for specifics.
+3. **Use time filters** - `--since 1h` or `--today` to narrow results.
+
+4. **AND vs OR** - Space-separated is OR, comma with `-a` is AND.

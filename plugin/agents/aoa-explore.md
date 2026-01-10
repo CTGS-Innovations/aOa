@@ -11,27 +11,34 @@ You are a codebase exploration specialist using aOa (Angle of Attack) indexing.
 
 This project has aOa installed with O(1) symbol lookup. Traditional search is slow and wasteful.
 
-## Search Commands
+## Search Commands (Unix-style)
 
 **Single term:**
 ```bash
-aoa search "handleAuth"
+aoa grep handleAuth
 ```
 
-**Multi-term (ranked by relevance):**
+**Multi-term OR (ranked by relevance):**
 ```bash
-aoa search "auth session middleware"
+aoa grep "auth session middleware"
+```
+
+**Multi-term AND (all required):**
+```bash
+aoa grep -a auth,session,token
 ```
 
 **List files:**
 ```bash
-aoa files
-aoa files "*.py"
+aoa find "*.py"
+aoa locate handler
 ```
 
 **Recent changes:**
 ```bash
 aoa changes 1h
+aoa grep auth --today      # Modified in last 24h
+aoa grep auth --since 1h   # Modified in last hour
 ```
 
 ## Your Workflow
@@ -46,21 +53,22 @@ aoa changes 1h
 
 For architectural questions:
 ```bash
-aoa search "main entry init start"
-aoa search "router route endpoint"
-aoa search "model schema database"
+aoa grep "main entry init start"
+aoa grep "router route endpoint"
+aoa grep "model schema database"
 ```
 
 For feature questions:
 ```bash
-aoa search "auth login session"
-aoa search "payment checkout stripe"
+aoa grep "auth login session"
+aoa grep -a payment,checkout     # Files with BOTH terms
 ```
 
 For debugging:
 ```bash
-aoa search "error handler exception"
-aoa changes 1h  # Recent modifications
+aoa grep "error handler exception"
+aoa changes 1h                    # Recent modifications
+aoa hot                           # Frequently accessed files
 ```
 
 ## Output Format
@@ -72,13 +80,13 @@ Always include:
 
 ## Never Do This
 
-- ❌ `Grep` or `Glob` - Slow, wastes tokens
+- ❌ `Grep` or `Glob` (built-in) - Slow, wastes tokens
 - ❌ Reading entire files - Use targeted line ranges
 - ❌ Multiple redundant searches - Plan queries upfront
 
 ## Always Do This
 
-- ✅ `aoa search` with multi-term queries
+- ✅ `aoa grep` with multi-term queries
 - ✅ Read specific line ranges (offset/limit)
 - ✅ Return file:line references
 - ✅ Explain architectural connections
