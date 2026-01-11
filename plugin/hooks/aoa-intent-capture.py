@@ -65,9 +65,14 @@ TOOL_TAGS = {
 }
 
 
-def extract_files(data: dict) -> list:
-    """Extract file paths from tool input/output."""
+def extract_files(data: dict) -> tuple:
+    """Extract file paths and search tags from tool input/output.
+
+    Returns:
+        tuple: (list of files, list of search-derived tags)
+    """
     files = set()
+    search_tags = set()  # Tags derived from search results
     tool_input = data.get('tool_input', {})
 
     # Common field names for file paths
@@ -155,9 +160,9 @@ def extract_files(data: dict) -> list:
                 # Add search term as a tag for these files (creates intent cluster)
                 if aoa_term and unique_results:
                     # Clean term for use as tag
-                    search_tag = re.sub(r'[^a-zA-Z0-9_-]', '', aoa_term.split()[0] if ' ' in aoa_term else aoa_term)[:20]
-                    if search_tag:
-                        tags.add(f"#{search_tag}")
+                    clean_tag = re.sub(r'[^a-zA-Z0-9_-]', '', aoa_term.split()[0] if ' ' in aoa_term else aoa_term)[:20]
+                    if clean_tag:
+                        search_tags.add(f"#{clean_tag}")
 
         # Match file paths in command - require at least one directory component
         # and extension must be at word boundary (not .claude matching .c)
@@ -174,7 +179,7 @@ def extract_files(data: dict) -> list:
         if '/' in pattern or '*' in pattern:
             files.add(f"pattern:{pattern}")
 
-    return list(files)[:20]  # Limit to 20 files
+    return list(files)[:20], list(search_tags)  # Limit to 20 files, return search tags
 
 
 def infer_tags(files: list, tool: str) -> list:
@@ -394,8 +399,9 @@ def main():
     tool_use_id = data.get('tool_use_id')  # Claude's toolu_xxx ID
 
     tool = data.get('tool_name', data.get('tool', 'unknown'))
-    files = extract_files(data)
+    files, search_tags = extract_files(data)
     tags = infer_tags(files, tool)
+    tags.extend(search_tags)  # Merge search-derived tags
 
     # Extract REAL output size from tool_response (Phase 2: honest metrics)
     output_size = get_output_size(data)

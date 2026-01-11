@@ -27,35 +27,62 @@ from flask import Flask, request, jsonify
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
-# Tree-sitter for code outlines
+# Tree-sitter for code outlines (165+ languages via language-pack)
 try:
-    from tree_sitter import Parser, Language
-    # Import individual language modules
-    import tree_sitter_python
-    import tree_sitter_javascript
-    import tree_sitter_typescript
-    import tree_sitter_go
-    import tree_sitter_rust
-    import tree_sitter_java
-    import tree_sitter_c
-    import tree_sitter_cpp
-    import tree_sitter_ruby
+    from tree_sitter import Parser, Query, QueryCursor
+    from tree_sitter_language_pack import get_language, get_parser
     TREE_SITTER_AVAILABLE = True
-    # Wrap language capsules with Language()
-    TREE_SITTER_LANGS = {
-        'python': Language(tree_sitter_python.language()),
-        'javascript': Language(tree_sitter_javascript.language()),
-        'typescript': Language(tree_sitter_typescript.language_typescript()),
-        'go': Language(tree_sitter_go.language()),
-        'rust': Language(tree_sitter_rust.language()),
-        'java': Language(tree_sitter_java.language()),
-        'c': Language(tree_sitter_c.language()),
-        'cpp': Language(tree_sitter_cpp.language()),
-        'ruby': Language(tree_sitter_ruby.language()),
-    }
+
+    def get_ts_language(lang_name: str):
+        """Get a tree-sitter language by name. Supports 165+ languages."""
+        # Map common aliases to tree-sitter-language-pack names
+        LANG_ALIASES = {
+            'typescript': 'typescript',
+            'javascript': 'javascript',
+            'python': 'python',
+            'go': 'go',
+            'rust': 'rust',
+            'java': 'java',
+            'c': 'c',
+            'cpp': 'cpp',
+            'ruby': 'ruby',
+            'php': 'php',
+            'c_sharp': 'c_sharp',
+            'csharp': 'c_sharp',
+            'swift': 'swift',
+            'kotlin': 'kotlin',
+            'scala': 'scala',
+            'bash': 'bash',
+            'shell': 'bash',
+            'html': 'html',
+            'css': 'css',
+            'json': 'json',
+            'yaml': 'yaml',
+            'toml': 'toml',
+            'sql': 'sql',
+            'lua': 'lua',
+            'elixir': 'elixir',
+            'haskell': 'haskell',
+            'ocaml': 'ocaml',
+            'r': 'r',
+            'julia': 'julia',
+            'dart': 'dart',
+            'zig': 'zig',
+            'nim': 'nim',
+            'perl': 'perl',
+            'markdown': 'markdown',
+            'vue': 'vue',
+            'svelte': 'svelte',
+        }
+        try:
+            name = LANG_ALIASES.get(lang_name, lang_name)
+            return get_language(name)
+        except Exception:
+            return None
+
 except ImportError:
     TREE_SITTER_AVAILABLE = False
-    TREE_SITTER_LANGS = {}
+    get_ts_language = lambda x: None
 
 # Ranking module for predictive file scoring
 import sys
@@ -132,8 +159,9 @@ class OutlineSymbol:
 class OutlineParser:
     """Extract code structure using tree-sitter."""
 
-    # Map file extensions to tree-sitter language names
+    # Map file extensions to tree-sitter language names (165+ supported)
     LANG_MAP = {
+        # Tier 1: Core languages with full symbol extraction
         'python': 'python',
         'typescript': 'typescript',
         'javascript': 'javascript',
@@ -148,6 +176,31 @@ class OutlineParser:
         'kotlin': 'kotlin',
         'scala': 'scala',
         'csharp': 'c_sharp',
+        # Tier 2: Additional languages with outline support
+        'bash': 'bash',
+        'shell': 'bash',
+        'lua': 'lua',
+        'elixir': 'elixir',
+        'haskell': 'haskell',
+        'ocaml': 'ocaml',
+        'r': 'r',
+        'julia': 'julia',
+        'dart': 'dart',
+        'zig': 'zig',
+        'nim': 'nim',
+        'perl': 'perl',
+        'clojure': 'clojure',
+        'erlang': 'erlang',
+        # Tier 3: Markup/config (basic outline)
+        'html': 'html',
+        'css': 'css',
+        'json': 'json',
+        'yaml': 'yaml',
+        'toml': 'toml',
+        'sql': 'sql',
+        'markdown': 'markdown',
+        'vue': 'vue',
+        'svelte': 'svelte',
     }
 
     # Node types that represent symbols we want to extract (by language)
@@ -200,10 +253,141 @@ class OutlineParser:
             'class': 'class',
             'module': 'module',
         },
+        'php': {
+            'function_definition': 'function',
+            'method_declaration': 'method',
+            'class_declaration': 'class',
+            'interface_declaration': 'interface',
+            'trait_declaration': 'trait',
+        },
+        'swift': {
+            'function_declaration': 'function',
+            'class_declaration': 'class',
+            'struct_declaration': 'struct',
+            'protocol_declaration': 'protocol',
+        },
+        'kotlin': {
+            'function_declaration': 'function',
+            'class_declaration': 'class',
+            'object_declaration': 'object',
+            'interface_declaration': 'interface',
+        },
+        'scala': {
+            'function_definition': 'function',
+            'class_definition': 'class',
+            'object_definition': 'object',
+            'trait_definition': 'trait',
+        },
+        'bash': {
+            'function_definition': 'function',
+        },
+        'lua': {
+            'function_declaration': 'function',
+            'function_definition': 'function',
+        },
+        'elixir': {
+            'call': 'function',  # def/defp are calls in Elixir AST
+        },
+        'haskell': {
+            'function': 'function',
+            'data': 'data',
+            'type_synonym': 'type',
+        },
+        'dart': {
+            'function_signature': 'function',
+            'class_definition': 'class',
+            'method_signature': 'method',
+        },
+        'zig': {
+            'fn_decl': 'function',
+            'struct_decl': 'struct',
+        },
+        'c_sharp': {
+            'method_declaration': 'method',
+            'class_declaration': 'class',
+            'interface_declaration': 'interface',
+            'struct_declaration': 'struct',
+        },
+    }
+
+    # Pattern queries for framework-specific symbols (routes, tests, handlers)
+    # These capture patterns that node-type extraction misses
+    # Note: predicates must be inside the pattern parentheses
+    PATTERN_QUERIES = {
+        'javascript': """
+            ; Express routes: app.get('/path', handler), router.post('/path', handler)
+            (call_expression
+              function: (member_expression
+                object: (identifier) @_router
+                property: (property_identifier) @_method
+                (#match? @_method "^(get|post|put|delete|patch|options|head|all|use)$"))
+              arguments: (arguments
+                (string) @path)) @route
+
+            ; Jest/Mocha tests: describe('...', fn), it('...', fn), test('...', fn)
+            (call_expression
+              function: (identifier) @_test_fn
+              (#match? @_test_fn "^(describe|it|test|beforeEach|afterEach|beforeAll|afterAll)$")
+              arguments: (arguments
+                (string) @test_name)) @test
+
+            ; Event handlers: emitter.on('event', handler)
+            (call_expression
+              function: (member_expression
+                property: (property_identifier) @_on_method
+                (#match? @_on_method "^(on|once|addEventListener|addListener)$"))
+              arguments: (arguments
+                (string) @event_name)) @event_handler
+        """,
+
+        'typescript': """
+            ; Express routes: app.get('/path', handler), router.post('/path', handler)
+            (call_expression
+              function: (member_expression
+                object: (identifier) @_router
+                property: (property_identifier) @_method
+                (#match? @_method "^(get|post|put|delete|patch|options|head|all|use)$"))
+              arguments: (arguments
+                (string) @path)) @route
+
+            ; Jest/Mocha tests: describe('...', fn), it('...', fn), test('...', fn)
+            (call_expression
+              function: (identifier) @_test_fn
+              (#match? @_test_fn "^(describe|it|test|beforeEach|afterEach|beforeAll|afterAll)$")
+              arguments: (arguments
+                (string) @test_name)) @test
+
+            ; Event handlers: emitter.on('event', handler)
+            (call_expression
+              function: (member_expression
+                property: (property_identifier) @_on_method
+                (#match? @_on_method "^(on|once|addEventListener|addListener)$"))
+              arguments: (arguments
+                (string) @event_name)) @event_handler
+        """,
+
+        'python': """
+            ; Flask/FastAPI decorators: @app.route('/path'), @router.get('/path')
+            (decorated_definition
+              (decorator
+                (call
+                  function: (attribute
+                    attribute: (identifier) @_method
+                    (#match? @_method "^(route|get|post|put|delete|patch|options|head)$"))
+                  arguments: (argument_list
+                    (string) @path)))
+              definition: (_) @_func) @route
+
+            ; pytest tests: def test_something()
+            (function_definition
+              name: (identifier) @test_name
+              (#match? @test_name "^test_")) @test
+        """,
     }
 
     def __init__(self):
         self._parsers = {}
+        self._queries = {}  # Cache compiled queries
 
     def get_parser(self, language: str):
         """Get or create a parser for the given language."""
@@ -215,7 +399,7 @@ class OutlineParser:
             return None
 
         if ts_lang not in self._parsers:
-            lang_obj = TREE_SITTER_LANGS.get(ts_lang)
+            lang_obj = get_ts_language(ts_lang)
             if not lang_obj:
                 return None
             try:
@@ -225,6 +409,173 @@ class OutlineParser:
                 return None
 
         return self._parsers.get(ts_lang)
+
+    def get_query(self, language: str):
+        """Get or create a compiled query for pattern matching."""
+        if not TREE_SITTER_AVAILABLE:
+            return None
+
+        ts_lang = self.LANG_MAP.get(language)
+        if not ts_lang:
+            return None
+
+        if ts_lang not in self._queries:
+            query_str = self.PATTERN_QUERIES.get(ts_lang)
+            if not query_str:
+                return None
+            lang_obj = get_ts_language(ts_lang)
+            if not lang_obj:
+                return None
+            try:
+                # Use Query() constructor (new API)
+                query = Query(lang_obj, query_str)
+                self._queries[ts_lang] = query
+            except Exception:
+                return None
+
+        return self._queries.get(ts_lang)
+
+    def _run_pattern_queries(self, tree, source: bytes, language: str) -> List['OutlineSymbol']:
+        """Run pattern queries to extract framework-specific symbols."""
+        query = self.get_query(language)
+        if not query:
+            return []
+
+        symbols = []
+        try:
+            # Use QueryCursor for executing queries (new API)
+            cursor = QueryCursor(query)
+            captures = cursor.captures(tree.root_node)
+        except Exception:
+            return []
+
+        # Group captures by their pattern type (@route, @test, @event_handler)
+        # The captures dict has capture name as key and list of nodes as value
+        for capture_name, nodes in captures.items():
+            if capture_name.startswith('_'):
+                # Skip internal captures (prefixed with _)
+                continue
+
+            for node in nodes:
+                # Determine symbol kind and name based on capture type
+                if capture_name == 'route':
+                    # Find the path capture within this match
+                    path_node = None
+                    method_node = None
+                    for child in node.children:
+                        if child.type == 'member_expression':
+                            for subchild in child.children:
+                                if subchild.type == 'property_identifier':
+                                    method_node = subchild
+                        elif child.type == 'arguments':
+                            for subchild in child.children:
+                                if subchild.type == 'string':
+                                    path_node = subchild
+                                    break
+
+                    if path_node and method_node:
+                        method = source[method_node.start_byte:method_node.end_byte].decode('utf-8', errors='replace').upper()
+                        path = source[path_node.start_byte:path_node.end_byte].decode('utf-8', errors='replace').strip('"\'')
+                        name = f"{method} {path}"
+                        symbols.append(OutlineSymbol(
+                            name=name,
+                            kind='route',
+                            start_line=node.start_point[0] + 1,
+                            end_line=node.end_point[0] + 1,
+                            signature=source[node.start_byte:min(node.end_byte, node.start_byte + 80)].decode('utf-8', errors='replace').strip(),
+                            children=[]
+                        ))
+
+                elif capture_name == 'test':
+                    # Extract test name from the string argument
+                    test_name_node = None
+                    test_fn = None
+                    for child in node.children:
+                        if child.type == 'identifier':
+                            test_fn = source[child.start_byte:child.end_byte].decode('utf-8', errors='replace')
+                        elif child.type == 'arguments':
+                            for subchild in child.children:
+                                if subchild.type == 'string':
+                                    test_name_node = subchild
+                                    break
+
+                    if test_name_node:
+                        test_name = source[test_name_node.start_byte:test_name_node.end_byte].decode('utf-8', errors='replace').strip('"\'')
+                        kind = 'test' if test_fn in ('it', 'test') else 'test_suite' if test_fn == 'describe' else 'test_hook'
+                        name = f"{test_fn}: {test_name}"
+                        symbols.append(OutlineSymbol(
+                            name=name,
+                            kind=kind,
+                            start_line=node.start_point[0] + 1,
+                            end_line=node.end_point[0] + 1,
+                            signature=source[node.start_byte:min(node.end_byte, node.start_byte + 80)].decode('utf-8', errors='replace').strip(),
+                            children=[]
+                        ))
+
+                elif capture_name == 'event_handler':
+                    # Extract event name
+                    event_name_node = None
+                    for child in node.children:
+                        if child.type == 'arguments':
+                            for subchild in child.children:
+                                if subchild.type == 'string':
+                                    event_name_node = subchild
+                                    break
+
+                    if event_name_node:
+                        event_name = source[event_name_node.start_byte:event_name_node.end_byte].decode('utf-8', errors='replace').strip('"\'')
+                        name = f"on: {event_name}"
+                        symbols.append(OutlineSymbol(
+                            name=name,
+                            kind='event',
+                            start_line=node.start_point[0] + 1,
+                            end_line=node.end_point[0] + 1,
+                            signature=source[node.start_byte:min(node.end_byte, node.start_byte + 80)].decode('utf-8', errors='replace').strip(),
+                            children=[]
+                        ))
+
+                elif capture_name == 'test_name':
+                    # Python pytest: def test_something()
+                    name = source[node.start_byte:node.end_byte].decode('utf-8', errors='replace')
+                    # Get parent function for line info
+                    parent = node.parent
+                    if parent and parent.type == 'function_definition':
+                        symbols.append(OutlineSymbol(
+                            name=name,
+                            kind='test',
+                            start_line=parent.start_point[0] + 1,
+                            end_line=parent.end_point[0] + 1,
+                            signature=source[parent.start_byte:min(parent.end_byte, parent.start_byte + 80)].decode('utf-8', errors='replace').strip(),
+                            children=[]
+                        ))
+
+                elif capture_name == 'path':
+                    # Python Flask/FastAPI route - need to get parent decorated_definition
+                    parent = node
+                    while parent and parent.type != 'decorated_definition':
+                        parent = parent.parent
+                    if parent:
+                        path = source[node.start_byte:node.end_byte].decode('utf-8', errors='replace').strip('"\'')
+                        # Try to find method from decorator
+                        method = 'ROUTE'
+                        for child in parent.children:
+                            if child.type == 'decorator':
+                                dec_text = source[child.start_byte:child.end_byte].decode('utf-8', errors='replace')
+                                for m in ['get', 'post', 'put', 'delete', 'patch']:
+                                    if f'.{m}(' in dec_text.lower():
+                                        method = m.upper()
+                                        break
+                        name = f"{method} {path}"
+                        symbols.append(OutlineSymbol(
+                            name=name,
+                            kind='route',
+                            start_line=parent.start_point[0] + 1,
+                            end_line=parent.end_point[0] + 1,
+                            signature=source[parent.start_byte:min(parent.end_byte, parent.start_byte + 80)].decode('utf-8', errors='replace').strip(),
+                            children=[]
+                        ))
+
+        return symbols
 
     def _get_node_name(self, node, source_bytes: bytes, language: str) -> Optional[str]:
         """Extract the name of a symbol node."""
@@ -239,9 +590,20 @@ class OutlineParser:
             'c': ['identifier'],
             'cpp': ['identifier'],
             'ruby': ['identifier', 'constant'],
+            'php': ['name'],
+            'swift': ['identifier', 'simple_identifier'],
+            'kotlin': ['simple_identifier', 'identifier'],
+            'scala': ['identifier'],
+            'c_sharp': ['identifier'],
+            'bash': ['word'],
+            'lua': ['identifier', 'name'],
+            'elixir': ['identifier'],
+            'haskell': ['identifier', 'variable'],
+            'dart': ['identifier'],
+            'zig': ['identifier'],
         }
 
-        types_to_check = name_types.get(language, ['identifier'])
+        types_to_check = name_types.get(language, ['identifier', 'name'])
 
         for child in node.children:
             if child.type in types_to_check:
@@ -298,6 +660,11 @@ class OutlineParser:
                 walk(child, depth + 1)
 
         walk(tree.root_node)
+
+        # Run pattern queries for framework-specific symbols (routes, tests, handlers)
+        pattern_symbols = self._run_pattern_queries(tree, source, language)
+        symbols.extend(pattern_symbols)
+
         return symbols
 
 

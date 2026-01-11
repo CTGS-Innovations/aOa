@@ -54,15 +54,7 @@ RUN pip install --no-cache-dir \
     pydantic \
     requests \
     tree-sitter \
-    tree-sitter-python \
-    tree-sitter-javascript \
-    tree-sitter-typescript \
-    tree-sitter-go \
-    tree-sitter-rust \
-    tree-sitter-java \
-    tree-sitter-c \
-    tree-sitter-cpp \
-    tree-sitter-ruby
+    tree-sitter-language-pack
 
 WORKDIR /app
 
