@@ -784,8 +784,8 @@ cmd_grep() {
         elif [ "$count_only" = true ]; then
             echo "$count"
         else
-            printf "${CYAN}${BOLD}⚡ %s hits${NC} ${DIM}│${NC} ${GREEN}%.2fms${NC}\n" "$count" "$ms"
-            echo "$result" | jq -r '.results[] | "  \(.file):\(.line)"' 2>/dev/null
+            # GL-040: Enhanced grep with ranked results and outlines for top 5
+            display_ranked_grep_results "$result" "$query" "$ms" "$count"
         fi
     else
         # Default: symbol search with /symbol endpoint
@@ -810,16 +810,105 @@ cmd_grep() {
         elif [ "$count_only" = true ]; then
             echo "$count"
         else
-            printf "${CYAN}${BOLD}⚡ %s hits${NC} ${DIM}│${NC} ${GREEN}%.2fms${NC}\n" "$count" "$ms"
-
-            # Results - show symbol metadata when available
-            echo "$result" | jq -r '.results[] |
-              if .symbol then
-                "  \(.file):\(.line) \(.symbol_kind // ""):\(.symbol) [\(.line)-\(.end_line // .line)]"
-              else
-                "  \(.file):\(.line)"
-              end' 2>/dev/null
+            # GL-040: Enhanced grep with ranked results and outlines for top 5
+            display_ranked_grep_results "$result" "$query" "$ms" "$count"
         fi
+    fi
+}
+
+# GL-040: Display grep results with semantic outlines
+# Shows ranked results with full symbol structure and tags
+display_ranked_grep_results() {
+    local result="$1"
+    local query="$2"
+    local ms="$3"
+    local count="$4"
+
+    # If no results, show simple message
+    if [ "$count" -lt 1 ]; then
+        printf "${CYAN}${BOLD}⚡ aOa${NC} ${DIM}│${NC} 0 hits ${DIM}│${NC} ${GREEN}%.2fms${NC}\n" "$ms"
+        return 0
+    fi
+
+    # Get unique files from results
+    local unique_files=$(echo "$result" | jq -r '[.results[].file] | unique | .[]')
+    local file_count=$(echo "$unique_files" | grep -c . || echo 0)
+
+    # Get prediction data for ranking
+    local predictions=$(curl -s "${INDEX_URL}/predict?limit=50" 2>/dev/null)
+
+    # Build a ranked list: file -> score (based on prediction confidence)
+    local ranked_files=""
+    while IFS= read -r file; do
+        [ -z "$file" ] && continue
+        local confidence=$(echo "$predictions" | jq -r --arg f "$file" '.files[] | select(.path == $f or (.path | endswith($f))) | .confidence // 0' 2>/dev/null | head -1)
+        [ -z "$confidence" ] && confidence="0"
+        local score=$(echo "$confidence" | awk '{printf "%.0f", $1 * 1000}')
+        ranked_files+="${score}:${file}\n"
+    done <<< "$unique_files"
+
+    # Sort by score descending
+    local sorted_files=$(echo -e "$ranked_files" | sort -t: -k1 -rn | cut -d: -f2-)
+
+    # aOa branded header
+    printf "${CYAN}${BOLD}⚡ aOa${NC} ${DIM}│${NC} ${BOLD}%s${NC} hits ${DIM}│${NC} ${GREEN}%.2fms${NC}\n" "$count" "$ms"
+    echo ""
+    printf "${DIM}─── Semantic Results ───${NC}\n"
+    echo ""
+
+    # Display top 5 files with FULL outlines and tags
+    local shown=0
+    local top_files=""
+
+    while IFS= read -r file; do
+        [ -z "$file" ] && continue
+        [ $shown -ge 5 ] && break
+
+        shown=$((shown + 1))
+        top_files+="$file\n"
+
+        # File header
+        printf "${BOLD}%d.${NC} %s\n" "$shown" "$file"
+
+        # Fetch outline for this file
+        local outline=$(curl -s "${INDEX_URL}/outline?file=${file}" 2>/dev/null)
+        local sym_count=$(echo "$outline" | jq -r '.count // 0' 2>/dev/null)
+
+        if [ "$sym_count" -gt 0 ]; then
+            # Fetch tags for this file
+            local tags_json=$(curl -s "${INDEX_URL}/outline/tags?file=${file}" 2>/dev/null)
+
+            # Show ALL symbols with tags
+            echo "$outline" | jq -r --argjson tags "$tags_json" '
+                .symbols | to_entries[] |
+                .key as $idx |
+                .value |
+                .kind as $kind |
+                .name as $name |
+                .start_line as $start |
+                .end_line as $end |
+                (($tags.tags[$name] // []) | join(" ")) as $sym_tags |
+                "   ├─ \($kind) \($name) [\($start)-\($end)]" + (if ($sym_tags | length) > 0 then "  \($sym_tags)" else "" end)
+            ' 2>/dev/null || echo "$outline" | jq -r '
+                .symbols[] |
+                "   ├─ \(.kind) \(.name) [\(.start_line)-\(.end_line)]"
+            ' 2>/dev/null
+        fi
+        echo ""
+
+    done <<< "$sorted_files"
+
+    # Show remaining files (simple list)
+    local remaining_count=$((file_count - shown))
+    if [ $remaining_count -gt 0 ]; then
+        printf "${DIM}─── %d more files ───${NC}\n" "$remaining_count"
+        local idx=$((shown + 1))
+        while IFS= read -r file; do
+            [ -z "$file" ] && continue
+            echo -e "$top_files" | grep -qx "$file" && continue
+            printf "  %d. %s\n" "$idx" "$file"
+            idx=$((idx + 1))
+        done <<< "$sorted_files"
     fi
 }
 
@@ -1139,6 +1228,91 @@ cmd_hot() {
     return 0
 }
 
+cmd_enrich() {
+    # aoa enrich --hot    - AI-enrich hot files that lack semantic tags
+    # aoa enrich <file>   - AI-enrich a specific file
+    local hot_mode=false
+    local file=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --hot|-h)
+                hot_mode=true
+                shift
+                ;;
+            *)
+                file="$1"
+                shift
+                ;;
+        esac
+    done
+
+    local project_id=$(get_project_id)
+
+    if $hot_mode; then
+        # Get hot files and check which need AI enrichment
+        printf "${CYAN}${BOLD}⚡ aOa Enrich${NC} ${DIM}│${NC} Checking hot files for AI tags...\n"
+        echo ""
+
+        local predictions=$(curl -s "${INDEX_URL}/predict?limit=10" 2>/dev/null)
+        local needs_tags=""
+        local count=0
+
+        while IFS= read -r filepath; do
+            [ -z "$filepath" ] && continue
+
+            # Check if file has AI-stored tags
+            local tags_json=$(curl -s "${INDEX_URL}/outline/tags?file=${filepath}" 2>/dev/null)
+            local tag_count=$(echo "$tags_json" | jq -r '.tags | keys | length // 0' 2>/dev/null)
+
+            if [ "$tag_count" -eq 0 ] || [ -z "$tag_count" ]; then
+                count=$((count + 1))
+                needs_tags+="$filepath\n"
+                printf "  ${YELLOW}○${NC} %s ${DIM}(needs AI tags)${NC}\n" "$filepath"
+            else
+                printf "  ${GREEN}✓${NC} %s ${DIM}(%s tags)${NC}\n" "$filepath" "$tag_count"
+            fi
+        done < <(echo "$predictions" | jq -r '.files[].path' 2>/dev/null)
+
+        echo ""
+        if [ $count -gt 0 ]; then
+            printf "${BOLD}%d file(s) need AI enrichment.${NC}\n" "$count"
+            echo ""
+            printf "${DIM}To enrich, say in Claude: \"enrich these hot files\"${NC}\n"
+            printf "${DIM}Or enrich one: aoa enrich <filepath>${NC}\n"
+            echo ""
+            echo "FILES_NEEDING_ENRICHMENT:"
+            echo -e "$needs_tags" | head -10
+        else
+            printf "${GREEN}All hot files have AI tags!${NC}\n"
+        fi
+    elif [ -n "$file" ]; then
+        # Enrich a specific file - show outline for Claude to tag
+        printf "${CYAN}${BOLD}⚡ aOa Enrich${NC} ${DIM}│${NC} %s\n" "$file"
+        echo ""
+
+        local outline=$(curl -s "${INDEX_URL}/outline?file=${file}" 2>/dev/null)
+        local sym_count=$(echo "$outline" | jq -r '.count // 0' 2>/dev/null)
+
+        if [ "$sym_count" -gt 0 ]; then
+            echo "Symbols to tag:"
+            echo "$outline" | jq -r '.symbols[] | "  \(.kind) \(.name) [\(.start_line)-\(.end_line)]"' 2>/dev/null
+            echo ""
+            echo "TAG_REQUEST:"
+            echo "$outline" | jq -c '{file: .file, language: .language, symbols: [.symbols[] | {name: .name, kind: .kind, line: .start_line, end_line: .end_line, signature: .signature}]}'
+        else
+            printf "${YELLOW}No symbols found in file.${NC}\n"
+        fi
+    else
+        echo "Usage: aoa enrich --hot       # Check hot files for AI tags"
+        echo "       aoa enrich <file>      # Prepare file for AI tagging"
+        echo ""
+        echo "Examples:"
+        echo "  aoa enrich --hot"
+        echo "  aoa enrich src/auth/handler.py"
+    fi
+}
+
 cmd_touched() {
     # aoa touched [since]   - Files touched in current session or time period
     local since="${1:-session}"
@@ -1242,6 +1416,7 @@ cmd_outline() {
     local enrich=false
     local enrich_all=false
     local pending=false
+    local hot_mode=false
     local json_output=false
     local store=false
     local show_tags=false
@@ -1259,6 +1434,10 @@ cmd_outline() {
                 ;;
             --pending)
                 pending=true
+                shift
+                ;;
+            --hot)
+                hot_mode=true
                 shift
                 ;;
             --json|-j)
@@ -1320,6 +1499,60 @@ cmd_outline() {
                 echo -e "${RED}✗${NC} ${err}"
                 return 1
             fi
+        fi
+        return 0
+    fi
+
+    # Handle --hot (hot files that need AI tags - prioritized list for lazy enricher)
+    if $hot_mode; then
+        local project_id=$(get_project_id)
+
+        # Get a larger pool of hot files (50), filter to those needing tags
+        local predictions=$(curl -s "${INDEX_URL}/predict?limit=50" 2>/dev/null)
+        local needs_tags=""
+        local tagged_count=0
+        local needs_count=0
+
+        while IFS= read -r filepath; do
+            [ -z "$filepath" ] && continue
+            # Skip line-range references (file.py:100-200)
+            [[ "$filepath" == *:*-* ]] && continue
+
+            # Check if file has AI-stored tags
+            local tags_json=$(curl -s "${INDEX_URL}/outline/tags?file=${filepath}" 2>/dev/null)
+            local tag_count=$(echo "$tags_json" | jq -r '.tags | keys | length // 0' 2>/dev/null)
+
+            if [ "$tag_count" -eq 0 ] || [ -z "$tag_count" ]; then
+                needs_count=$((needs_count + 1))
+                needs_tags+="$filepath\n"
+            else
+                tagged_count=$((tagged_count + 1))
+            fi
+        done < <(echo "$predictions" | jq -r '.files[].path' 2>/dev/null)
+
+        # JSON output for agents
+        if $json_output; then
+            echo -e "$needs_tags" | head -20 | jq -R -s 'split("\n") | map(select(length > 0)) | {hot_pending: ., count: length}'
+            return 0
+        fi
+
+        echo -e "${CYAN}${BOLD}⚡ aOa Outline - Hot Files${NC}"
+        echo ""
+        echo -e "  Need tags:  ${YELLOW}${needs_count}${NC}"
+        echo -e "  Already:    ${GREEN}${tagged_count}${NC}"
+        echo ""
+
+        if [ "$needs_count" -gt 0 ]; then
+            echo -e "${BOLD}Hot files needing AI tags:${NC}"
+            echo -e "$needs_tags" | head -10 | while read -r f; do
+                [ -n "$f" ] && echo "  $f"
+            done
+            [ "$needs_count" -gt 10 ] && echo -e "  ${DIM}... and $((needs_count - 10)) more${NC}"
+            echo ""
+            echo "HOT_PENDING:"
+            echo -e "$needs_tags" | head -10
+        else
+            echo -e "${GREEN}All hot files have AI tags!${NC}"
         fi
         return 0
     fi
@@ -3580,7 +3813,7 @@ main() {
         changes|c)  cmd_changes "$@" ;;
         files|f)    cmd_files "$@" ;;
         outline|o)  cmd_outline "$@" ;;
-        enrich|e)   cmd_outline --pending ;;  # Alias - now part of outline
+        enrich)     cmd_enrich "$@" ;;
 
         # File Discovery (Unix parity)
         find)       cmd_find "$@" ;;

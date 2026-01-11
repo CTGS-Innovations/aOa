@@ -1688,7 +1688,7 @@ def get_outline():
 
 @app.route('/outline/enriched', methods=['POST'])
 def mark_enriched():
-    """Store semantic compression tags at symbol level in the inverted index."""
+    """Store semantic compression tags with counting (idempotent, tracks confidence)."""
     data = request.json
     file_path = data.get('file')
     project = data.get('project')
@@ -1701,11 +1701,16 @@ def mark_enriched():
     if not idx:
         return jsonify({'success': False, 'error': 'No index available'}), 404
 
-    # Index symbol-level tags
     tags_indexed = 0
+    tags_incremented = 0
     mtime = int(time.time())
+    project_key = project or 'default'
 
-    with idx.lock:
+    # Use Redis for tag counting (dedup + confidence tracking)
+    try:
+        import redis
+        r = redis.from_url(os.environ.get('REDIS_URL', 'redis://localhost:6379/0'))
+
         for sym in symbols:
             sym_name = sym.get('name', '')
             sym_kind = sym.get('kind', 'unknown')
@@ -1714,36 +1719,76 @@ def mark_enriched():
             tags = sym.get('tags', [])
 
             for tag in tags:
-                # Create location with full symbol metadata
-                loc = Location(
-                    file=file_path,
-                    line=line,
-                    col=0,
-                    symbol_type='tag',
-                    mtime=mtime,
-                    symbol=sym_name,
-                    symbol_kind=sym_kind,
-                    end_line=end_line
-                )
-                idx.inverted_index[tag].append(loc)
-                tags_indexed += 1
+                # Key: tag_count:{project}:{file}:{symbol}:{tag}
+                count_key = f"tag_count:{project_key}:{file_path}:{sym_name}:{tag}"
 
-    # Store enrichment timestamp in Redis
-    try:
-        import redis
-        r = redis.from_url(os.environ.get('REDIS_URL', 'redis://localhost:6379/0'))
-        key = f"enriched:{project or 'default'}:{file_path}"
-        r.hset(key, mapping={
+                # Increment count (creates key with value 1 if doesn't exist)
+                new_count = r.incr(count_key)
+
+                if new_count == 1:
+                    # First time seeing this tag - add to inverted index
+                    with idx.lock:
+                        loc = Location(
+                            file=file_path,
+                            line=line,
+                            col=0,
+                            symbol_type='tag',
+                            mtime=mtime,
+                            symbol=sym_name,
+                            symbol_kind=sym_kind,
+                            end_line=end_line
+                        )
+                        idx.inverted_index[tag].append(loc)
+                    tags_indexed += 1
+                else:
+                    # Already exists, just incremented count
+                    tags_incremented += 1
+
+                # Also store symbol metadata for retrieval
+                meta_key = f"tag_meta:{project_key}:{file_path}:{sym_name}:{tag}"
+                r.hset(meta_key, mapping={
+                    'kind': sym_kind,
+                    'line': line,
+                    'end_line': end_line,
+                    'updated': mtime
+                })
+
+        # Store enrichment timestamp
+        enrich_key = f"enriched:{project_key}:{file_path}"
+        r.hset(enrich_key, mapping={
             'enriched_at': mtime,
-            'tags_count': tags_indexed
+            'tags_count': tags_indexed + tags_incremented
         })
-    except Exception:
-        pass  # Redis is optional for tracking
+
+    except Exception as e:
+        # Fallback: just append without dedup (legacy behavior)
+        with idx.lock:
+            for sym in symbols:
+                sym_name = sym.get('name', '')
+                sym_kind = sym.get('kind', 'unknown')
+                line = sym.get('line', 0)
+                end_line = sym.get('end_line', line)
+                tags = sym.get('tags', [])
+
+                for tag in tags:
+                    loc = Location(
+                        file=file_path,
+                        line=line,
+                        col=0,
+                        symbol_type='tag',
+                        mtime=mtime,
+                        symbol=sym_name,
+                        symbol_kind=sym_kind,
+                        end_line=end_line
+                    )
+                    idx.inverted_index[tag].append(loc)
+                    tags_indexed += 1
 
     return jsonify({
         'success': True,
         'file': file_path,
         'tags_indexed': tags_indexed,
+        'tags_incremented': tags_incremented,
         'symbols_processed': len(symbols),
         'enriched_at': mtime
     })
@@ -1751,29 +1796,62 @@ def mark_enriched():
 
 @app.route('/outline/tags')
 def get_symbol_tags():
-    """Get semantic tags for symbols in a file."""
+    """Get semantic tags for symbols in a file, with confidence counts."""
     file_path = request.args.get('file', '')
     project = request.args.get('project')
+    include_counts = request.args.get('counts', 'false').lower() == 'true'
 
     idx = manager.get_local(project)
     if not idx:
         return jsonify({'error': 'No index available', 'tags': {}}), 404
 
-    # Find all tags that have locations in this file
+    project_key = project or 'default'
     tags_by_symbol = {}
 
-    with idx.lock:
-        for tag, locations in idx.inverted_index.items():
-            if not tag.startswith('#'):
-                continue  # Only semantic tags
+    # Try to get counts from Redis
+    try:
+        import redis
+        r = redis.from_url(os.environ.get('REDIS_URL', 'redis://localhost:6379/0'))
 
-            for loc in locations:
-                if loc.file == file_path or loc.file.endswith(file_path):
-                    symbol_name = loc.symbol or 'file'
+        # Scan for all tag counts for this file
+        pattern = f"tag_count:{project_key}:{file_path}:*"
+        cursor = 0
+        while True:
+            cursor, keys = r.scan(cursor, match=pattern, count=100)
+            for key in keys:
+                # Parse key: tag_count:{project}:{file}:{symbol}:{tag}
+                parts = key.decode().split(':')
+                if len(parts) >= 5:
+                    symbol_name = parts[3]
+                    tag = ':'.join(parts[4:])  # Handle tags with colons
+                    count = int(r.get(key) or 1)
+
                     if symbol_name not in tags_by_symbol:
                         tags_by_symbol[symbol_name] = []
-                    if tag not in tags_by_symbol[symbol_name]:
-                        tags_by_symbol[symbol_name].append(tag)
+
+                    if include_counts:
+                        tags_by_symbol[symbol_name].append({'tag': tag, 'count': count})
+                    else:
+                        if tag not in tags_by_symbol[symbol_name]:
+                            tags_by_symbol[symbol_name].append(tag)
+
+            if cursor == 0:
+                break
+
+    except Exception:
+        # Fallback: use inverted index (no counts)
+        with idx.lock:
+            for tag, locations in idx.inverted_index.items():
+                if not tag.startswith('#'):
+                    continue
+
+                for loc in locations:
+                    if loc.file == file_path or loc.file.endswith(file_path):
+                        symbol_name = loc.symbol or 'file'
+                        if symbol_name not in tags_by_symbol:
+                            tags_by_symbol[symbol_name] = []
+                        if tag not in tags_by_symbol[symbol_name]:
+                            tags_by_symbol[symbol_name].append(tag)
 
     return jsonify({
         'file': file_path,
